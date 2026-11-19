@@ -5,17 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#ffffff">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Tuffest">
   <title>Tuffest</title>
+  <!-- the tuf logo: browser tab, "Add to Home Screen" icon and installed-app icon -->
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-512.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
   <script>
     /* apply the saved background before first paint (no flash) */
     try { document.documentElement.dataset.theme = localStorage.getItem('tuffest.theme') || 'white'; } catch (e) { document.documentElement.dataset.theme = 'white'; }
+    /* opened from the home screen (not a browser tab): show the logo cover for a moment */
+    if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) document.documentElement.classList.add('standalone');
   </script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+
+  <!-- launch cover (only visible when opened as an installed app) -->
+  <div class="cover" aria-hidden="true"><div class="logo">tuf</div></div>
 
   <!-- ============ Main screen ============ -->
   <div class="app">

@@ -337,9 +337,15 @@ html[data-theme="pink"] { --loc-color: #b0104a; --loc-bg: transparent; --loc-pad
 .foot-row { display: flex; justify-content: center; gap: 24px; margin-top: 6px; }
 .foot-row[hidden] { display: none; }
 
+/* launch cover: the tuf logo, shown for a moment when the app is opened from the home screen */
+.cover { display: none; position: fixed; inset: 0; z-index: 100; background: #d9e8ff; place-items: center; }
+.standalone .cover { display: grid; animation: coverOut .5s ease 1s forwards; }
+.cover .logo { width: 132px; height: 132px; border: 2px solid var(--ink); font-size: 60px; }
+@keyframes coverOut { to { opacity: 0; visibility: hidden; } }
+
 /* sign in + account */
-/* the sign-in screen: plain white, dark text */
-.auth { position: fixed; inset: 0; z-index: 90; background: #fff; color: var(--ink); display: grid; place-items: center; padding: 24px; overflow-y: auto; }
+/* the sign-in screen: the site's light blue, dark text */
+.auth { position: fixed; inset: 0; z-index: 90; background: #d9e8ff; color: var(--ink); display: grid; place-items: center; padding: 24px; overflow-y: auto; }
 .auth[hidden] { display: none; }
 .auth-box { width: min(100%, 360px); display: flex; flex-direction: column; gap: 4px; }
 .auth-box .logo { border-color: var(--ink); margin-bottom: 14px; }
