@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Tuffest</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+  <script>
+    /* apply the saved background before first paint (no flash) */
+    try { document.documentElement.dataset.theme = localStorage.getItem('tuffest.theme') || 'white'; } catch (e) { document.documentElement.dataset.theme = 'white'; }
+  </script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ============ Main screen ============ -->
+  <div class="app">
+    <header class="chrome mono">
+      <span aria-hidden="true">TUF_1</span>
+      <span class="themes" id="themes" role="group" aria-label="Background colour">
+        <button class="sw" type="button" data-theme="white" aria-label="White" style="--sw:#ffffff"></button>
+        <button class="sw" type="button" data-theme="blue" aria-label="Light blue" style="--sw:#cfe2ff"></button>
+        <button class="sw" type="button" data-theme="pink" aria-label="Light pink" style="--sw:#ffd3e2"></button>
+      </span>
+      <span class="chrome-right" id="chromeRight" aria-hidden="true"></span>
+    </header>
+
+    <div class="bar">
+      <nav class="years" id="years" aria-label="Years"></nav>
+      <button class="add mono" id="addBtn" type="button">+ add vibe</button>
+    </div>
+
+    <main class="stack" id="stack"></main>
+
+    <footer class="foot">
+      <div class="mono">
+        Tuffest. Vibe Archive.<br>
+        <button class="linkish" id="settingsBtn" type="button">settings</button>
+        <span class="sync" id="syncState"></span>
+      </div>
+      <div class="logo" aria-hidden="true">tuf</div>
+    </footer>
+  </div>
+
+  <input type="file" id="fileInput" accept="image/*" multiple hidden>
+
+  <!-- ============ Side panels ============ -->
+  <div class="scrim" id="scrim"></div>
+
+  <!-- Add / edit a vibe -->
+  <aside class="panel" id="panel" aria-hidden="true" aria-label="Add vibe">
+    <div class="panel-head">
+      <span class="mono" id="panelTitle">New vibe</span>
+      <button class="x" id="panelClose" type="button" aria-label="Close">×</button>
+    </div>
+
+    <div class="panel-scroll">
+      <section class="field">
+        <span class="mono lbl">01 · Photos</span>
+        <div class="thumbs" id="thumbs"></div>
+        <p class="hint mono" id="layoutHint"></p>
+      </section>
+
+      <section class="field">
+        <label class="mono lbl" for="dateInput">02 · Day</label>
+        <input type="date" id="dateInput">
+      </section>
+
+      <section class="field">
+        <span class="mono lbl">03 · Caption</span>
+        <!-- Free writing. Locations sit inside the text as links, anywhere you put the cursor. -->
+        <div class="editor is-empty" id="editor" contenteditable="true" role="textbox" aria-multiline="true"
+             data-ph="Write your caption… add a location wherever it belongs"></div>
+        <button class="loc-btn mono" id="addLoc" type="button">◎ add location</button>
+
+        <div class="composer" id="composer" hidden>
+          <label class="mono small" for="locName">Name in the caption</label>
+          <input id="locName" type="text" placeholder="maru, the park, nike…" autocomplete="off" enterkeyhint="next">
+
+          <label class="mono small" for="locFind">Find it on Google Maps</label>
+          <div class="name-wrap">
+            <input id="locFind" type="text" placeholder="Start typing the place" autocomplete="off" enterkeyhint="done">
+            <ul class="sugg" id="locSugg" hidden></ul>
+          </div>
+          <p class="found" id="locFound" hidden><span id="locFoundText"></span> <button type="button" class="mini" id="locUnlink">unlink</button></p>
+          <p class="hint mono" id="locHint" hidden>No Maps key yet, so there are no suggestions. What you type here still becomes the search behind the link. Add a key in settings to pick the exact place.</p>
+          <button type="button" class="mini" id="locToggle"></button>
+          <div class="coords" id="locCoords" hidden>
+            <input id="locCoordInput" type="text" inputmode="decimal" placeholder="51.5074, -0.1278" autocomplete="off">
+            <button type="button" class="mini" id="locHere">use my location</button>
+          </div>
+          <div class="row">
+            <button type="button" class="pill mono" id="locOk">Add to caption</button>
+            <button type="button" class="mini" id="locCancel">cancel</button>
+            <button type="button" class="mini" id="locRemove" hidden>remove</button>
+          </div>
+        </div>
+        <div class="suggest" id="suggest"></div>
+        <p class="hint mono" id="mapsHint"></p>
+      </section>
+
+      <section class="field">
+        <label class="mono lbl" for="titleInput">04 · Anything else <span class="opt">(optional)</span></label>
+        <input type="text" id="titleInput" maxlength="80" placeholder="a name for this one, if it has one" autocomplete="off">
+      </section>
+    </div>
+
+    <div class="panel-foot">
+      <button class="save mono" id="saveBtn" type="button">File it</button>
+      <div class="foot-row" id="footRow" hidden>
+        <button class="mini" id="laterBtn" type="button">caption later</button>
+        <button class="mini" id="dropBtn" type="button">drop this one</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Settings -->
+  <aside class="panel" id="settings" aria-hidden="true" aria-label="Settings">
+    <div class="panel-head">
+      <span class="mono">Settings</span>
+      <button class="x" id="settingsClose" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="panel-scroll">
+      <section class="field" id="acct" hidden>
+        <span class="mono lbl">Account</span>
+        <p class="acct-line" id="acctEmail"></p>
+        <p class="hint mono">Space code. Give it to your partner so they join the same vibes:</p>
+        <p class="acct-code mono" id="acctCode"></p>
+        <div class="acct-row">
+          <button class="pill mono" id="syncNow" type="button">Sync now</button>
+          <button class="mini" id="signOut" type="button">sign out</button>
+        </div>
+      </section>
+      <section class="field">
+        <label class="mono lbl" for="keyInput">Google Maps API key</label>
+        <input type="text" id="keyInput" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <p class="hint mono">Turns on place search when you add a location. Needs the Places API (New) enabled on the key. Stored only on this device. Without a key you can still type any place and it links to Google Maps.</p>
+      </section>
+    </div>
+    <div class="panel-foot">
+      <button class="save mono" id="keySave" type="button">Save key</button>
+    </div>
+  </aside>
+
+  <!-- Instagram Story preview (9:16) -->
+  <div class="story" id="story" hidden>
+    <div class="story-box" role="dialog" aria-label="Story preview">
+      <div class="story-opts" id="storyOpts">
+        <figure class="story-opt" data-mode="names">
+          <img alt="Story with place names">
+          <figcaption class="tag mono">Names</figcaption>
+          <div class="story-actions">
+            <button class="save mono share" type="button">Share</button>
+            <button class="mini keep" type="button">save image</button>
+          </div>
+        </figure>
+        <figure class="story-opt" data-mode="coords" hidden>
+          <img alt="Story with coordinates">
+          <figcaption class="tag mono">Coordinates</figcaption>
+          <div class="story-actions">
+            <button class="save mono share" type="button">Share</button>
+            <button class="mini keep" type="button">save image</button>
+          </div>
+        </figure>
+      </div>
+      <button class="mini story-close" id="storyClose" type="button">close</button>
+    </div>
+  </div>
+
+  <!-- Sign in (only when cloud sync is configured) -->
+  <div class="auth" id="auth" hidden>
+    <form class="auth-box" id="authForm" novalidate>
+      <div class="logo" aria-hidden="true">tuf</div>
+      <h2 class="auth-title" id="authTitle">Sign in to your vibes</h2>
+
+      <label class="mono small" for="authEmail">Email</label>
+      <input type="email" id="authEmail" autocomplete="email" autocapitalize="off" spellcheck="false">
+
+      <label class="mono small" for="authPass">Password</label>
+      <input type="password" id="authPass" autocomplete="current-password">
+
+      <div id="authCodeRow" hidden>
+        <label class="mono small" for="authCode">Space code from your partner</label>
+        <input type="text" id="authCode" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="leave empty if you're first">
+      </div>
+
+      <p class="hint mono" id="authNote"></p>
+      <p class="auth-err" id="authErr" hidden></p>
+
+      <button class="save mono" id="authGo" type="submit">Sign in</button>
+      <button class="mini" id="authSwap" type="button">New here? Create an account</button>
+    </form>
+  </div>
+
+  <div class="peek" id="peek" hidden aria-hidden="true"></div>
+
+  <div class="toast mono" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
