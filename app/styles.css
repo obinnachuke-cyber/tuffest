@@ -366,6 +366,7 @@ html[data-theme="pink"] { --loc-color: #b0104a; --loc-bg: transparent; --loc-pad
 .acct-line { margin: 0 0 10px; font: 400 18px var(--serif); }
 .acct-code { margin: 4px 0 14px; padding: 10px 12px; border: 1px dashed rgba(255, 255, 255, .7); border-radius: 3px; font-size: 16px; letter-spacing: .18em; user-select: all; }
 .acct-row { display: flex; align-items: center; gap: 20px; }
+.invite { margin: 4px 0 14px; }
 
 /* story preview */
 .story { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, .78); display: grid; place-items: center; padding: 16px; }

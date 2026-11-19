@@ -142,7 +142,9 @@
       <section class="field" id="acct" hidden>
         <span class="mono lbl">Account</span>
         <p class="acct-line" id="acctEmail"></p>
-        <p class="hint mono">Space code. Give it to your partner so they join the same vibes:</p>
+        <p class="hint mono">Share your vibes. Send someone the invite link and they create their account right from it, already joined to this space.</p>
+        <button class="pill mono invite" id="inviteBtn" type="button">Invite someone</button>
+        <p class="hint mono">Or give them this space code to type in:</p>
         <p class="acct-code mono" id="acctCode"></p>
         <div class="acct-row">
           <button class="pill mono" id="syncNow" type="button">Sync now</button>
@@ -197,7 +199,7 @@
       <input type="password" id="authPass" autocomplete="current-password">
 
       <div id="authCodeRow" hidden>
-        <label class="mono small" for="authCode">Space code from your partner</label>
+        <label class="mono small" for="authCode">Space code</label>
         <input type="text" id="authCode" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="leave empty if you're first">
       </div>
 

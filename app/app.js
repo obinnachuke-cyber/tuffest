@@ -1796,7 +1796,12 @@ function syncAuthMode() {
   $('#authGo').textContent = up ? 'Create account' : 'Sign in';
   $('#authSwap').textContent = up ? 'I already have an account' : 'New here? Create an account';
   $('#authPass').autocomplete = up ? 'new-password' : 'current-password';
-  $('#authNote').textContent = up ? 'Second person joining? Enter the space code your partner gave you. First one in? Leave it empty and you’ll get a code to share.' : '';
+  const invited = localStorage.getItem('tuffest.joincode');       // came in through an invite link
+  $('#authNote').textContent = up
+    ? (invited ? 'You’ve been invited to a shared space. Create your account to join it.'
+      : 'Joining someone? Enter the space code they gave you. First one in? Leave it empty and you’ll get a code to share.')
+    : '';
+  if (up && invited) $('#authCode').value = invited;
   $('#authErr').hidden = true;
 }
 
@@ -1842,9 +1847,26 @@ async function submitAuth(e) {
   } finally { go.disabled = false; }
 }
 
+/** The link someone taps to join this space: the sign-up page opens with the code already in. */
+function inviteLink() {
+  const code = $('#acctCode').textContent.trim();
+  return code ? `${location.origin}${location.pathname}?join=${encodeURIComponent(code)}` : '';
+}
+
+async function shareInvite() {
+  const url = inviteLink();
+  if (!url) return toast('Sign in first');
+  try {
+    if (navigator.share) { await navigator.share({ title: 'Tuffest', text: 'Come add to our vibes on Tuffest:', url }); return; }
+  } catch (e) { if (e.name === 'AbortError') return; }              // closed the share sheet: nothing to do
+  try { await navigator.clipboard.writeText(url); toast('Invite link copied. Paste it into a message'); }
+  catch (e) { window.prompt('Copy this invite link:', url); }
+}
+
 async function afterLogin() {
   try {
     await Cloud.ensureSpace();
+    localStorage.removeItem('tuffest.joincode');                   // used up (or not needed)
     try { localStorage.setItem('tuffest.space', JSON.stringify({ id: Cloud.space.id, code: Cloud.space.code })); } catch (e) { /* storage blocked */ }
   } catch (e) {
     const cached = Cloud.cachedSpace();             // offline: carry on with the space we already know
@@ -1935,6 +1957,7 @@ function bind() {
   $('#authForm').onsubmit = submitAuth;
   $('#authSwap').onclick = () => { authMode = authMode === 'up' ? 'in' : 'up'; syncAuthMode(); };
   $('#syncNow').onclick = () => { toast('Syncing…'); syncAll(); };
+  $('#inviteBtn').onclick = shareInvite;
   $('#signOut').onclick = signOutNow;
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAll(); });
   window.addEventListener('online', syncAll);
@@ -1960,10 +1983,18 @@ async function boot() {
   }));
   render();
 
+  // an invite link looks like  .../app/?join=CODE : remember the code and open the sign-up form
+  const invite = (new URLSearchParams(location.search).get('join') || '').trim().toLowerCase();
+  if (invite) {
+    try { localStorage.setItem('tuffest.joincode', invite); } catch (e) { /* storage blocked */ }
+    history.replaceState(null, '', location.pathname);              // keep the address bar tidy
+    authMode = 'up';
+  }
+
   // cloud: show what's on this phone straight away, then sign in / sync in the background
   if (Cloud.init()) {
     try {
-      if (await Cloud.session()) await afterLogin();
+      if (await Cloud.session()) { if (invite) toast('You’re already signed in'); await afterLogin(); }
       else showAuth();
     } catch (e) { console.warn(e); setSync('offline · will retry'); }
   }
