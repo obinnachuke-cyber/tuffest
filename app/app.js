@@ -1792,7 +1792,6 @@ let authMode = 'in';
 
 function syncAuthMode() {
   const up = authMode === 'up';
-  $('#authTitle').textContent = up ? 'Make your account' : 'Sign in to your vibes';
   $('#authCodeRow').hidden = !up;
   $('#authGo').textContent = up ? 'Create account' : 'Sign in';
   $('#authSwap').textContent = up ? 'I already have an account' : 'New here? Create an account';

@@ -348,8 +348,7 @@ html[data-theme="pink"] { --loc-color: #b0104a; --loc-bg: transparent; --loc-pad
 .auth { position: fixed; inset: 0; z-index: 90; background: #d9e8ff; color: var(--ink); display: grid; place-items: center; padding: 24px; overflow-y: auto; }
 .auth[hidden] { display: none; }
 .auth-box { width: min(100%, 360px); display: flex; flex-direction: column; gap: 4px; }
-.auth-box .logo { border-color: var(--ink); margin-bottom: 14px; }
-.auth-title { margin: 0 0 14px; font: italic 400 30px/1.1 var(--serif); }
+.auth-box .logo { border-color: var(--ink); margin-bottom: 20px; }
 .auth .small { display: block; margin: 12px 0 2px; opacity: .7; font-size: 9.5px; }
 .auth input {
   width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--ink); border-radius: 0;
