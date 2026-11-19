@@ -141,24 +141,90 @@ async function dimsOf(blob) {
   }
 }
 
-/* --- photo layout: picked from how many photos there are and which way they face ---
-   1 -> single frame (near-square, follows the photo's shape a little)
-   2 -> two portraits sit side by side, otherwise they stack
-   3 -> photo-booth strip: stacked frames, card gets longer
-   4 -> 2 x 2 grid                                                                      */
-const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+/* --- photo layout ---------------------------------------------------------------------------
+   Every photo keeps its real shape (an iPhone portrait is 3:4, a landscape 4:3). For the photos in a
+   vibe we build several candidate arrangements, in which each photo gets a frame that fits its own
+   shape exactly, then score them:
+     - crop:  how much of each photo the frame would cut off
+     - height: the whole block must stay compact (never longer than ~1.4 x the card's width), so a
+               tall arrangement is squashed, which costs crop
+     - size:  no frame should be a tiny thumbnail
+   The lowest score wins. So three portraits become one big 3:4 beside two small ones, three
+   landscapes become one big on top with two below, and nothing is cropped when it doesn't have to be.
 
-function layoutOf(dims) {
-  const ratios = dims.map(([w, h]) => w / h);
-  const avg = ratios.reduce((a, b) => a + b, 0) / ratios.length;
-  switch (dims.length) {
-    case 1: return { kind: 'single', aspect: clamp(avg, 0.8, 1.25), label: 'single frame' };
-    case 2: return ratios.every(r => r < 0.95)
-      ? { kind: 'pair-h', aspect: 0.75, label: 'side by side' }
-      : { kind: 'booth', aspect: clamp(avg, 1, 1.33), label: 'stacked' };
-    case 3: return { kind: 'booth', aspect: clamp(avg, 1.2, 1.33), label: 'photo strip' };
-    default: return { kind: 'grid', aspect: 1, label: '2 × 2 grid' };
+   All numbers are relative to the block's width (width = 1), so the same layout draws on screen,
+   on the public page and on the story image.                                                       */
+const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+const PH_GAP = 0.02; // space between frames, as a fraction of the width
+
+function layoutOf(dims, { hMax = 1.4, hMin = 0.55 } = {}) {
+  const a = dims.map(([w, h]) => w / h);          // each photo's aspect, width / height
+  const n = a.length, g = PH_GAP;
+  const cands = [];
+  const add = (name, label, cells) => cands.push({ name, label, cells, H: Math.max(...cells.map(c => c.y + c.h)) });
+  const sum = arr => arr.reduce((s, x) => s + x, 0);
+
+  if (n === 1) add('single', 'single frame', [{ x: 0, y: 0, w: 1, h: 1 / a[0] }]);
+
+  if (n === 2) {
+    const h = (1 - g) / (a[0] + a[1]);            // side by side, equal height
+    add('side', 'side by side', [{ x: 0, y: 0, w: a[0] * h, h }, { x: a[0] * h + g, y: 0, w: a[1] * h, h }]);
+    add('stack', 'stacked', [{ x: 0, y: 0, w: 1, h: 1 / a[0] }, { x: 0, y: 1 / a[0] + g, w: 1, h: 1 / a[1] }]);
   }
+
+  if (n === 3) {
+    const [A, B, C] = a;
+    const h = (1 - 2 * g) / (A + B + C);          // row of three
+    add('row', 'row of three', [{ x: 0, y: 0, w: A * h, h }, { x: A * h + g, y: 0, w: B * h, h }, { x: (A + B) * h + 2 * g, y: 0, w: C * h, h }]);
+    { // one big on the left, two stacked on the right: widths solved so all three fit exactly
+      const wR = (1 - g - A * g) / (A * (1 / B + 1 / C) + 1), hB = wR / B, hC = wR / C, H = hB + g + hC, wL = A * H;
+      add('heroL', 'one big, two small', [{ x: 0, y: 0, w: wL, h: H }, { x: wL + g, y: 0, w: wR, h: hB }, { x: wL + g, y: hB + g, w: wR, h: hC }]);
+    }
+    { // one big on top, two side by side below
+      const hA = 1 / A, h = (1 - g) / (B + C);
+      add('heroT', 'one big, two small', [{ x: 0, y: 0, w: 1, h: hA }, { x: 0, y: hA + g, w: B * h, h }, { x: B * h + g, y: hA + g, w: C * h, h }]);
+    }
+    add('stack3', 'stacked', [{ x: 0, y: 0, w: 1, h: 1 / A }, { x: 0, y: 1 / A + g, w: 1, h: 1 / B }, { x: 0, y: 1 / A + 1 / B + 2 * g, w: 1, h: 1 / C }]);
+  }
+
+  if (n === 4) {
+    const [A, B, C, D] = a;
+    { // two justified rows
+      const h1 = (1 - g) / (A + B), h2 = (1 - g) / (C + D), y2 = h1 + g;
+      add('rows', 'two rows', [
+        { x: 0, y: 0, w: A * h1, h: h1 }, { x: A * h1 + g, y: 0, w: B * h1, h: h1 },
+        { x: 0, y: y2, w: C * h2, h: h2 }, { x: C * h2 + g, y: y2, w: D * h2, h: h2 }]);
+    }
+    { // even 2 x 2
+      const s = (1 - g) / 2;
+      add('grid', '2 × 2 grid', [{ x: 0, y: 0, w: s, h: s }, { x: s + g, y: 0, w: s, h: s }, { x: 0, y: s + g, w: s, h: s }, { x: s + g, y: s + g, w: s, h: s }]);
+    }
+    { // one big on the left, three stacked on the right
+      const wR = (1 - g - A * 2 * g) / (A * (1 / B + 1 / C + 1 / D) + 1), hB = wR / B, hC = wR / C, hD = wR / D;
+      const H = hB + hC + hD + 2 * g, wL = A * H;
+      add('hero3', 'one big, three small', [{ x: 0, y: 0, w: wL, h: H }, { x: wL + g, y: 0, w: wR, h: hB }, { x: wL + g, y: hB + g, w: wR, h: hC }, { x: wL + g, y: hB + hC + 2 * g, w: wR, h: hD }]);
+    }
+  }
+
+  let best = null;
+  cands.forEach((c, order) => {
+    if (c.H > hMax) { // too tall for the card: squash it, which crops the photos a little
+      const k = hMax / c.H;
+      c.cells = c.cells.map(f => ({ ...f, y: f.y * k, h: f.h * k }));
+      c.H = hMax;
+    }
+    const crop = c.cells.reduce((s, f, i) => { const r = f.w / f.h; return s + (1 - Math.min(r, a[i]) / Math.max(r, a[i])); }, 0) / n;
+    const small = Math.max(0, 0.32 - Math.min(...c.cells.map(f => f.w))); // a frame narrower than a third of the card is a thumbnail
+    c.score = crop + 0.8 * Math.max(0, hMin - c.H) + small + order * 0.001;
+    if (!best || c.score < best.score) best = c;
+  });
+  return best;
+}
+
+/** Frames for a layout as HTML: each is positioned by percentages of the block, so it scales with the card. */
+function framesHTML(lay, urls) {
+  return `<div class="mosaic ${lay.name}" style="--ar:${(1 / lay.H).toFixed(4)}">${lay.cells.map((c, i) =>
+    `<div class="ph" style="left:${(c.x * 100).toFixed(3)}%;top:${(c.y / lay.H * 100).toFixed(3)}%;width:${(c.w * 100).toFixed(3)}%;height:${(c.h / lay.H * 100).toFixed(3)}%"><img src="${urls[i]}" alt="" draggable="false"></div>`).join('')}</div>`;
 }
 
 /* ============================== exif ================================ */
@@ -554,9 +620,7 @@ function scrollIntoViewSoon(key) {
 /* ============================== deck ================================ */
 function photosHTML(v) {
   const dims = v.photos.map((_, i) => (v.dims && v.dims[i]) || [4, 3]);
-  const lay = layoutOf(dims);
-  const frames = photoURLs(v).map(u => `<div class="ph"><img src="${u}" alt="" draggable="false"></div>`).join('');
-  return `<div class="photos ${lay.kind}" style="--a:${lay.aspect.toFixed(3)}">${frames}</div>`;
+  return framesHTML(layoutOf(dims), photoURLs(v));
 }
 
 function cardHTML(v, i) {
@@ -1413,22 +1477,10 @@ function roundRectPath(g, x, y, w, h, r) {
   g.closePath();
 }
 
-/** Photo frames inside the card, same arrangement as the on-screen layouts. */
-function storyFrames(lay, n, innerW, top) {
-  const { pad, gap } = STORY, rects = [];
-  const half = (innerW - gap) / 2;
-  // a 3-frame strip gets wider frames on the story so the card doesn't have to shrink until the text is tiny
-  const stripAspect = lay.kind === 'booth' && n >= 3 ? Math.max(lay.aspect, 1.55) : lay.aspect;
-  for (let i = 0; i < n; i++) {
-    if (lay.kind === 'single' || lay.kind === 'booth') {
-      const h = innerW / stripAspect;
-      rects.push({ x: pad, y: i ? rects[i - 1].y + rects[i - 1].h + gap : top, w: innerW, h });
-    } else {
-      const h = half / lay.aspect, row = Math.floor(i / 2);
-      rects.push({ x: pad + (i % 2) * (half + gap), y: top + row * (h + gap), w: half, h });
-    }
-  }
-  return rects;
+/** Photo frames inside the card in pixels: the same layout as on screen, scaled to the story card's width. */
+function storyFrames(lay, innerW, top) {
+  const { pad } = STORY;
+  return lay.cells.map(c => ({ x: pad + c.x * innerW, y: top + c.y * innerW, w: c.w * innerW, h: c.h * innerW }));
 }
 
 /** Split styled segments into words, then wrap to maxW. Returns visual lines of {text, loc, w}. */
@@ -1459,7 +1511,7 @@ async function renderStory(v, mode = 'names') {
   const fonts = ['italic 400 64px Newsreader', 'italic 400 46px Newsreader', '400 22px "IBM Plex Mono"'];
   await Promise.all(fonts.map(f => document.fonts.load(f).catch(() => {}))); // fall back quietly if offline
   const bmps = await Promise.all(v.photos.map(b => createImageBitmap(b)));
-  const lay = layoutOf(bmps.map(b => [b.width, b.height]));
+  const lay = layoutOf(bmps.map(b => [b.width, b.height]), { hMax: 1.05 }); // a little more compact than on screen so the text stays big
   const { w: W, h: H, cardW, pad } = STORY;
   const innerW = cardW - pad * 2;
 
@@ -1474,7 +1526,7 @@ async function renderStory(v, mode = 'names') {
     titleLines = wrapTokens(m, [{ t: 'text', v: v.title }], innerW);
   }
   const titleY = y; y += titleLines.length * 72 + (v.title ? 10 : 0);
-  const frames = storyFrames(lay, bmps.length, innerW, y);
+  const frames = storyFrames(lay, innerW, y);
   y = Math.max(...frames.map(f => f.y + f.h)) + 6;
   m.font = CAP_FONT;
   const asCoords = s => (mode === 'coords' && hasPin(s) ? { ...s, name: '' } : s); // empty name -> label falls back to coordinates
@@ -1981,13 +2033,12 @@ async function stopSharing() {
 /* --- the page a shared link opens --- */
 function sharedCardHTML(s, token) {
   const dims = s.photos.map(p => [p.w || 4, p.h || 3]);
-  const lay = layoutOf(dims);
-  const frames = s.photos.map(p => `<div class="ph"><img src="${esc(p.url)}" alt="" draggable="false"></div>`).join('');
+  const frames = framesHTML(layoutOf(dims), s.photos.map(p => esc(p.url)));
   const v = { id: token, caption: s.caption || [] }; // same caption layout as a card: one place per line, steady random offsets
   const caption = captionHTML(v);
   return `<article class="card static"><div class="card-in">
     <div class="cap"><div class="cap-top mono"><span>${fmtDate(s.date)}</span></div>${s.title ? `<h3 class="title">${esc(s.title)}</h3>` : ''}</div>
-    <div class="photos ${lay.kind}" style="--a:${lay.aspect.toFixed(3)}">${frames}</div>
+    ${frames}
     ${caption ? `<div class="write cap-lines">${caption}</div>` : ''}
   </div></article>`;
 }
