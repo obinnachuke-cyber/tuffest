@@ -2049,9 +2049,9 @@ async function sendInvite(v) {
   catch (e) { console.warn(e); return toast('Couldn’t make the invite. Has supabase-pair.sql been run?'); }
   $('#toast').classList.remove('on');
   const code = Cloud.space.code;
-  const text = `Come add vibes with me on Tuffest. Open the link, then tap Add vibe. Pairing code: ${code}`;
+  const text = `Come add vibes with me on wesotuf. Open the link, then tap Add vibe. Pairing code: ${code}`;
   try {
-    if (navigator.share) { await navigator.share({ title: 'Tuffest', text, url }); return; }
+    if (navigator.share) { await navigator.share({ title: 'wesotuf', text, url }); return; }
   } catch (e) { if (e.name === 'AbortError') return; }                 // closed the share sheet: nothing to do
   try { await navigator.clipboard.writeText(`${text}\n${url}`); toast('Invite copied. Paste it into a message'); }
   catch (e) { window.prompt('Copy this invite:', `${text}\n${url}`); }
@@ -2076,7 +2076,7 @@ function sharedCardHTML(s, token) {
       <div class="write"><p>Make your account and we’ll keep one archive together.</p></div>
     </div></article>`;
   }
-  const label = has ? `${MONTHS[month]} ${y}` : 'Tuffest';
+  const label = has ? `${MONTHS[month]} ${y}` : 'wesotuf';
   return `<section class="folder open static" style="--c:${PALETTE[month % PALETTE.length]}; --x:0%">
     <div class="tab-row"><button class="tab" type="button" tabindex="-1"><span>${label}</span></button></div>
     <div class="plate"><div class="strip"><span class="meta mono">${has ? `${MON3[month]} ${y} · 1 vibe` : 'new folder'}</span></div>
@@ -2107,7 +2107,7 @@ async function showShared(token) {
   sharedIsInvite = !!share.invite;
   $('#sharedNote').textContent = sharedIsInvite
     ? 'Add a vibe and you’ll be paired. Your photos and theirs live in one archive.'
-    : 'Shared from Tuffest. Make a page of your own vibes.';
+    : 'Shared from wesotuf. Make a page of your own vibes.';
   $('#sharedOpen').textContent = Cloud.ready() ? 'go to my vibes' : 'I already have an account';
   box.innerHTML = sharedCardHTML(share, token);
   requestAnimationFrame(() => placeLines(box));

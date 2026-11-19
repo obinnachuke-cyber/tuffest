@@ -1,4 +1,4 @@
-/* Tuffest: the page behind a shared-vibe link, https://YOUR-SITE/s/TOKEN
+/* wesotuf: the page behind a shared-vibe link, https://YOUR-SITE/s/TOKEN
    Link previews in Messages / WhatsApp / Instagram read a page's <meta> tags without running any
    JavaScript, so this builds a tiny page whose tags describe THIS vibe (its title, caption and first
    photo). Real visitors are sent straight on to the app, which shows the vibe. */
@@ -33,8 +33,8 @@ exports.handler = async event => {
   } catch (e) { /* fall through to the generic page */ }
 
   const invite = share && share.invite;
-  const title = invite ? 'Come add vibes with me · Tuffest' : share ? `${share.title || 'A vibe'} · Tuffest` : 'Tuffest';
-  const desc = invite ? (plain(share.caption) || 'Open this, tap Add vibe, and we’ll keep one archive together.').slice(0, 200) : share ? (plain(share.caption) || 'A vibe on Tuffest.').slice(0, 200) : 'A vibe archive.';
+  const title = invite ? 'Come add vibes with me · wesotuf' : share ? `${share.title || 'A vibe'} · wesotuf` : 'wesotuf';
+  const desc = invite ? (plain(share.caption) || 'Open this, tap Add vibe, and we’ll keep one archive together.').slice(0, 200) : share ? (plain(share.caption) || 'A vibe on wesotuf.').slice(0, 200) : 'A vibe archive.';
   const photo = share && share.photos && share.photos[0];
 
   const html = `<!doctype html>
@@ -44,7 +44,7 @@ exports.handler = async event => {
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(desc)}">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Tuffest">
+<meta property="og:site_name" content="wesotuf">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(desc)}">
 <meta property="og:url" content="${esc(`${site}/s/${token}`)}">
@@ -57,7 +57,7 @@ ${photo ? `<meta property="og:image" content="${esc(photo.url)}">
 ${photo ? `<meta name="twitter:image" content="${esc(photo.url)}">` : ''}
 <link rel="canonical" href="${esc(appUrl)}">
 <script>location.replace(${JSON.stringify(appUrl)});</script>
-</head><body style="font-family:Georgia,serif;padding:24px"><p><a href="${esc(appUrl)}">Open this vibe on Tuffest</a></p></body></html>`;
+</head><body style="font-family:Georgia,serif;padding:24px"><p><a href="${esc(appUrl)}">Open this vibe on wesotuf</a></p></body></html>`;
 
   return {
     statusCode: 200,

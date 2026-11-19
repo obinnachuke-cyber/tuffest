@@ -339,8 +339,9 @@ html[data-theme="pink"] { --loc-color: #b0104a; --loc-bg: transparent; --loc-pad
 
 /* launch cover: the tuf logo, shown for a moment when the app is opened from the home screen */
 .cover { display: none; position: fixed; inset: 0; z-index: 100; background: #d9e8ff; place-items: center; }
-.standalone .cover { display: grid; animation: coverOut .5s ease 1s forwards; }
-.cover .logo { width: 132px; height: 132px; border: 2px solid var(--ink); font-size: 60px; }
+.standalone .cover { display: flex; flex-direction: column; align-items: center; justify-content: center; animation: coverOut .5s ease 1s forwards; }
+.cover .logo-img { height: 72px; }
+.cover .word { margin-top: 18px; }
 @keyframes coverOut { to { opacity: 0; visibility: hidden; } }
 
 /* share as a link (inside the story sheet) */
@@ -365,7 +366,7 @@ html[data-theme="pink"] { --loc-color: #b0104a; --loc-bg: transparent; --loc-pad
 .auth { position: fixed; inset: 0; z-index: 90; background: #d9e8ff; color: var(--ink); display: grid; place-items: center; padding: 24px; overflow-y: auto; }
 .auth[hidden] { display: none; }
 .auth-box { width: min(100%, 360px); display: flex; flex-direction: column; gap: 4px; }
-.auth-box .logo { border-color: var(--ink); margin-bottom: 20px; }
+.auth-box .word { margin-bottom: 26px; }
 .auth .small { display: block; margin: 12px 0 2px; opacity: .7; font-size: 9.5px; }
 .auth input {
   width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--ink); border-radius: 0;
@@ -419,3 +420,9 @@ html[data-theme="pink"] { --loc-color: #b0104a; --loc-bg: transparent; --loc-pad
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+
+/* the hearts logo, and the tiny typewriter name that goes with it: present, never loud */
+.logo-img { display: block; width: auto; image-rendering: pixelated; }
+.foot-logo { height: 26px; }
+.auth-logo { height: 38px; margin-bottom: 8px; align-self: flex-start; } /* flex column: don't stretch it full width */
+.word { display: block; font-size: 9px; letter-spacing: .24em; text-transform: lowercase; opacity: .55; }
