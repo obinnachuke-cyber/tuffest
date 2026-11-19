@@ -2018,27 +2018,36 @@ const shareUrl = token => `${location.origin}/s/${token}`;
 /** The vibe an invite shows when you send it from settings: your newest one. */
 const latestVibe = () => filed().sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt)[0] || null;
 
-/** The picture message apps show with the link: the vibe's photos in their real shapes (same layout as the card),
-    as a card on the app's light blue, 1200 x 630 (the size link previews use). */
+/** The picture message apps show with the link: the WHOLE vibe, not just a cover photo. All of its photos in
+    their real shapes (the same layout as the card) on the left, and its date, title and caption on the right
+    (one place per line, places in black boxes), on a paper card over the app's light blue. 1200 x 630 is the
+    size link previews use, so nothing gets cropped. */
 async function renderPreviewImage(v) {
+  await Promise.all(['italic 400 54px Newsreader', 'italic 400 34px Newsreader', '400 20px "IBM Plex Mono"'].map(f => document.fonts.load(f).catch(() => {})));
   const bmps = await Promise.all(v.photos.map(b => createImageBitmap(b)));
   const lay = layoutOf(bmps.map(b => [b.width, b.height]));
-  const W = 1200, H = 630, frame = 14, boxW = W - 2 * 40 - 2 * frame, boxH = H - 2 * 40 - 2 * frame;
-  const bw = Math.min(boxW, boxH / lay.H), bh = bw * lay.H;     // the layout block, scaled to fit, never stretched
-  const ox = (W - bw) / 2, oy = (H - bh) / 2;
+  const W = 1200, H = 630, M = 36, PAD = 28;
+  const card = { x: M, y: M, w: W - 2 * M, h: H - 2 * M };
+  const lines = captionLines(v);
+  const hasText = !!(v.title || lines.length);
+  const innerH = card.h - 2 * PAD;
+  const bw = Math.min(hasText ? 500 : card.w - 2 * PAD, innerH / lay.H), bh = bw * lay.H; // photo block, scaled to fit, never stretched
+  const mx = hasText ? card.x + PAD : (W - bw) / 2, my = card.y + (card.h - bh) / 2;
+
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.fillStyle = '#d9e8ff';
   g.fillRect(0, 0, W, H);
   g.save();
-  g.shadowColor = 'rgba(0,0,0,.28)'; g.shadowBlur = 36; g.shadowOffsetY = 14;
+  g.shadowColor = 'rgba(0,0,0,.25)'; g.shadowBlur = 34; g.shadowOffsetY = 12;
   g.fillStyle = '#f3f1ec';
-  roundRectPath(g, ox - frame, oy - frame, bw + 2 * frame, bh + 2 * frame, 6);
+  roundRectPath(g, card.x, card.y, card.w, card.h, 8);
   g.fill();
   g.restore();
+
   lay.cells.forEach((cell, i) => {
-    const b = bmps[i], x = ox + cell.x * bw, y = oy + cell.y * bw, w = cell.w * bw, h = cell.h * bw;
+    const b = bmps[i], x = mx + cell.x * bw, y = my + cell.y * bw, w = cell.w * bw, h = cell.h * bw;
     const k = Math.max(w / b.width, h / b.height);
     g.save();
     g.beginPath(); g.rect(x, y, w, h); g.clip();
@@ -2046,6 +2055,41 @@ async function renderPreviewImage(v) {
     g.restore();
   });
   bmps.forEach(b => b.close && b.close());
+
+  if (hasText) {
+    const tx = mx + bw + 44, tw = card.x + card.w - PAD - tx, bottom = card.y + card.h - PAD;
+    let y = card.y + PAD;
+    g.textBaseline = 'top';
+    g.fillStyle = '#5a5a5a';
+    g.font = '400 20px "IBM Plex Mono", ui-monospace, monospace';
+    g.fillText(fmtDate(v.date), tx, y);
+    y += 44;
+    if (v.title) {
+      g.font = 'italic 400 54px Newsreader, Georgia, serif';
+      g.fillStyle = '#141414';
+      wrapTokens(g, [{ t: 'text', v: v.title }], tw).slice(0, 2).forEach(l => { g.fillText(l.toks.map(t => t.text).join(''), tx, y); y += 62; });
+      y += 10;
+    }
+    g.font = 'italic 400 34px Newsreader, Georgia, serif';
+    for (const L of lines) {
+      const wrapped = wrapTokens(g, L.segs, tw - 12);
+      for (const l of wrapped) {
+        if (y + 48 > bottom) break;
+        let x = tx + (wrapped.length === 1 ? L.r * (tw - 12 - l.w) : 0) + 6;
+        l.toks.forEach((t, ti) => {
+          if (t.loc) {
+            const padL = ti === 0 || !l.toks[ti - 1].loc ? 6 : 0, padR = ti === l.toks.length - 1 || !l.toks[ti + 1].loc ? 6 : 0;
+            g.fillStyle = '#000';
+            g.fillRect(x - padL, y - 2, t.w + padL + padR, 42);
+            g.fillStyle = '#fff';
+          } else g.fillStyle = '#141414';
+          g.fillText(t.text, x, y);
+          x += t.w;
+        });
+        y += 48;
+      }
+    }
+  }
   return new Promise(res => c.toBlob(res, 'image/jpeg', 0.82));
 }
 
