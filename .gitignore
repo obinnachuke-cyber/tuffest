@@ -1,0 +1,6 @@
+# reference material (large, not part of the site)
+*.mp4
+*.webp
+
+# local tooling
+.claude/

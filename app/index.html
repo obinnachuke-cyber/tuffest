@@ -20,7 +20,10 @@
   <!-- ============ Main screen ============ -->
   <div class="app">
     <header class="chrome mono">
-      <span aria-hidden="true">TUF_1</span>
+      <span class="chrome-left">
+        <span class="code" aria-hidden="true">TUF_1</span>
+        <button class="linkish" id="viewsBtn" type="button" aria-haspopup="true" aria-expanded="false">views</button>
+      </span>
       <span class="themes" id="themes" role="group" aria-label="Background colour">
         <button class="sw" type="button" data-theme="white" aria-label="White" style="--sw:#ffffff"></button>
         <button class="sw" type="button" data-theme="blue" aria-label="Light blue" style="--sw:#cfe2ff"></button>
@@ -194,6 +197,17 @@
       <button class="save mono" id="authGo" type="submit">Sign in</button>
       <button class="mini" id="authSwap" type="button">New here? Create an account</button>
     </form>
+  </div>
+
+  <!-- views menu -->
+  <div class="views-menu mono" id="viewsMenu" role="menu" hidden></div>
+
+  <!-- a tapped calendar day: its vibes, flipped through -->
+  <div class="day" id="day" hidden>
+    <div class="day-box" role="dialog" aria-label="Vibes on this day">
+      <div class="day-body" id="dayBody"></div>
+      <button class="mini day-close" id="dayClose" type="button">close</button>
+    </div>
   </div>
 
   <div class="peek" id="peek" hidden aria-hidden="true"></div>

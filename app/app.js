@@ -366,6 +366,8 @@ const state = {
   mapsKey: '',
   urls: new Map(),   // vibe id -> object URLs
   views: {},         // month key -> {week: 'all' | 1..5, grid: bool}
+  view: 'folders',   // which way of looking: 'folders' | 'calendar'
+  calMonth: null,    // month shown in the calendar view, 'YYYY-MM'
 };
 
 const filed = () => state.list.filter(v => !v.unfiled);      // vibes shown in folders
@@ -406,14 +408,15 @@ function renderYears(years) {
   const nav = $('#years');
   nav.innerHTML = '';
   const pending = unfiled().length;
-  nav.hidden = !years.length && !pending;
+  const showYears = years.length && state.view === 'folders'; // the calendar pages by month instead
+  nav.hidden = !showYears && !pending;
   if (pending) { // photos waiting for words
     const u = el('button', 'chip unf mono', `Unfiled ${pending}`);
     u.type = 'button';
     u.onclick = openUnfiled;
     nav.append(u);
   }
-  if (years.length) ['all', ...years].forEach(y => {
+  if (showYears) ['all', ...years].forEach(y => {
     const b = el('button', 'chip mono', y === 'all' ? 'All' : y);
     b.type = 'button';
     b.setAttribute('aria-pressed', String(state.year === y));
@@ -432,6 +435,7 @@ function renderChrome() {
 function renderStack() {
   const stack = $('#stack');
   stack.innerHTML = '';
+  if (state.view === 'calendar') return renderCalendar(stack);
   const gs = groups();
   if (!gs.length) { stack.append(emptyFolder()); return; }
   if (!gs.some(g => g.key === state.open)) state.open = gs[0].key;
@@ -566,6 +570,14 @@ function cardHTML(v, i) {
   </div></article>`;
 }
 
+/** The links at the bottom of a card (+ photos / share / edit / delete), from a folder or from the calendar. */
+function runCardAct(act, id) {
+  if (act === 'edit') editVibe(id);
+  else if (act === 'photos') { editVibe(id); $('#fileInput').click(); }
+  else if (act === 'share') openStory(id);
+  else deleteVibe(id);
+}
+
 /* --- inside a folder: weeks + grid (only once a month holds more than 4 vibes) --- */
 const weekOf = iso => Math.min(5, Math.ceil(+iso.slice(8, 10) / 7)); // W1 = 1-7, W2 = 8-14 ... W5 = 29+
 const viewOf = key => state.views[key] || (state.views[key] = { week: 'all', grid: false });
@@ -577,14 +589,7 @@ function mountDeck(f) {
   // one click handler for everything inside the folder, however many times the body is redrawn
   host.addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
-    if (b) {
-      const id = b.closest('.card').dataset.id;
-      if (b.dataset.act === 'edit') editVibe(id);
-      else if (b.dataset.act === 'photos') { editVibe(id); $('#fileInput').click(); }
-      else if (b.dataset.act === 'share') openStory(id);
-      else deleteVibe(id);
-      return;
-    }
+    if (b) { runCardAct(b.dataset.act, b.closest('.card').dataset.id); return; }
     const cell = e.target.closest('.gcell');
     if (cell) { viewOf(f._group.key).grid = false; state.focusId = cell.dataset.id; renderBody(f); state.focusId = null; }
   });
@@ -694,11 +699,118 @@ function initDeck(root, g) {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeStory(); closeSettings(); closePanel(); return; }
+  if (e.key === 'Escape') { closeViews(); closeDay(); closeStory(); closeSettings(); closePanel(); return; }
   if (!['ArrowLeft', 'ArrowRight'].includes(e.key) || panelOpen() || e.target.closest('input, textarea, [contenteditable]')) return;
+  const dir = e.key === 'ArrowRight' ? 1 : -1;
+  if (!$('#day').hidden) { const b = $('#dayBody'); return b._go && b._go(dir); } // flipping through a day
+  if (state.view === 'calendar') return stepMonth(dir);
   const open = $('#stack .folder.open .collapse-pad');
-  if (open && open._go) open._go(e.key === 'ArrowRight' ? 1 : -1);
+  if (open && open._go) open._go(dir);
 });
+
+/* ============================== views =============================== */
+/* A small "views" link at the top switches how the archive is laid out: folders, calendar (more to come). */
+const VIEWS = [{ id: 'folders', label: 'Folders' }, { id: 'calendar', label: 'Calendar' }];
+const VIEW_STORE = 'tuffest.view';
+
+function setView(id) {
+  state.view = id;
+  try { localStorage.setItem(VIEW_STORE, id); } catch (e) { /* storage blocked */ }
+  closeDay();
+  closeViews();
+  render();
+}
+
+function openViews() {
+  const menu = $('#viewsMenu'), btn = $('#viewsBtn');
+  menu.innerHTML = VIEWS.map(v => `<button type="button" role="menuitemradio" aria-checked="${state.view === v.id}" data-view="${v.id}"><i>${state.view === v.id ? '●' : ''}</i>${v.label}</button>`).join('');
+  menu.querySelectorAll('button').forEach(b => { b.onclick = () => setView(b.dataset.view); });
+  menu.hidden = false;
+  const r = btn.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(r.left, innerWidth - menu.offsetWidth - 8)) + 'px';
+  menu.style.top = (r.bottom + 6) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+}
+
+function closeViews() {
+  const menu = $('#viewsMenu');
+  if (menu.hidden) return;
+  menu.hidden = true;
+  $('#viewsBtn').setAttribute('aria-expanded', 'false');
+}
+
+/* ============================== calendar ============================ */
+/* A wall-calendar page: colour block with the month's first vibe as a round photo on top, a grid of
+   day circles below. A day with a vibe is blotted out (filled in) and opens that day's vibes. */
+const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const shiftMonth = (key, d) => { const [y, m] = key.split('-').map(Number); const t = new Date(y, m - 1 + d, 1); return `${t.getFullYear()}-${pad(t.getMonth() + 1)}`; };
+
+function stepMonth(d) { state.calMonth = shiftMonth(state.calMonth, d); renderStack(); }
+
+function renderCalendar(stack) {
+  const all = filed();
+  if (!state.calMonth) state.calMonth = all.map(v => v.date.slice(0, 7)).sort().pop() || todayISO().slice(0, 7); // newest month with vibes
+  const key = state.calMonth;
+  const [y, m] = key.split('-').map(Number), month = m - 1;
+  const color = PALETTE[month % PALETTE.length];
+
+  const inMonth = all.filter(v => v.date.startsWith(key)).sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt);
+  const byDay = new Map();
+  inMonth.forEach(v => { const d = +v.date.slice(8); if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(v); });
+  const first = inMonth[0]; // its first photo is the page's picture
+
+  const lead = (new Date(y, month, 1).getDay() + 6) % 7;      // weeks start on Monday
+  const days = new Date(y, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < Math.ceil((lead + days) / 7) * 7; i++) {
+    const d = i - lead + 1;
+    if (d < 1 || d > days) cells.push('<span class="cd off"></span>');
+    else if (byDay.has(d)) {
+      const n = byDay.get(d).length;
+      cells.push(`<button type="button" class="cd on" data-day="${d}" style="--t:${(d * 37 % 7) - 3}deg" aria-label="${n} vibe${n > 1 ? 's' : ''} on ${MONTHS[month]} ${d}"><span>${d}</span></button>`);
+    } else cells.push(`<span class="cd">${d}</span>`);
+  }
+
+  const wrap = el('div', 'cal-wrap');
+  wrap.innerHTML = `
+    <section class="cal" style="--c:${color}; --cp:${PALETTE[(month + 7) % 8]}; --cn:${PALETTE[(month + 1) % 8]}">
+      <div class="cal-top"><i class="hole"></i>
+        <div class="cal-photo">${first ? `<img src="${photoURLs(first)[0]}" alt="">` : '<span class="mono">no vibes yet</span>'}</div>
+      </div>
+      <div class="cal-body">
+        <div class="cal-head"><span>${MONTHS[month]}</span><span>${y}</span></div>
+        <div class="cal-wk">${WEEKDAYS.map(d => `<span>${d}</span>`).join('')}</div>
+        <div class="cal-grid">${cells.join('')}</div>
+        <div class="cal-foot mono">${inMonth.length} vibe${inMonth.length === 1 ? '' : 's'} · tuffest</div>
+      </div>
+    </section>
+    <div class="cal-nav">
+      <button class="step" type="button" data-step="-1" aria-label="Previous month">←</button>
+      <span class="mono">${MON3[month]} ${y}</span>
+      <button class="step" type="button" data-step="1" aria-label="Next month">→</button>
+    </div>`;
+  wrap.querySelectorAll('[data-step]').forEach(b => { b.onclick = () => stepMonth(+b.dataset.step); });
+  wrap.querySelectorAll('.cd.on').forEach(b => { b.onclick = () => openDay(byDay.get(+b.dataset.day)); });
+  stack.append(wrap);
+}
+
+/* the vibes of one tapped day, flipped through in a sheet over the calendar */
+function openDay(items) {
+  const body = $('#dayBody');
+  body.innerHTML = `<div class="deck">${items.map(cardHTML).join('')}</div>
+    <div class="deck-ctl"><button class="step prev" type="button" aria-label="Previous">←</button><span class="mono count"></span><button class="step next" type="button" aria-label="Next">→</button></div>`;
+  $('#day').hidden = false;
+  document.body.classList.add('locked');
+  initDeck(body, { items });
+  $('.deck-ctl', body).hidden = items.length < 2;
+}
+
+function closeDay() {
+  if ($('#day').hidden) return;
+  $('#day').hidden = true;
+  $('#dayBody').innerHTML = '';
+  document.body.classList.remove('locked');
+}
 
 /* ============================== panel =============================== */
 let draft = null;
@@ -793,6 +905,7 @@ function focusVibe(id) {
   const v = state.list.find(x => x.id === id);
   if (!v || v.unfiled) return;
   state.focusId = id;
+  state.calMonth = v.date.slice(0, 7);
   state.open = v.date.slice(0, 7);
   state.views[state.open] = { week: 'all', grid: false };
   if (state.year !== 'all' && state.year !== +v.date.slice(0, 4)) state.year = +v.date.slice(0, 4);
@@ -1806,6 +1919,19 @@ function bind() {
     setTimeout(() => location.reload(), 500); // Maps loads once per page, so reload to apply
   };
 
+  // views menu + the calendar's day sheet
+  $('#viewsBtn').onclick = e => { e.stopPropagation(); $('#viewsMenu').hidden ? openViews() : closeViews(); };
+  document.addEventListener('click', e => { if (!e.target.closest('#viewsMenu')) closeViews(); });
+  $('#dayClose').onclick = closeDay;
+  $('#day').onclick = e => { if (e.target.id === 'day') closeDay(); };
+  $('#dayBody').addEventListener('click', e => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const id = b.closest('.card').dataset.id;
+    closeDay(); // the editor / story / delete prompt takes over; the calendar redraws behind it
+    runCardAct(b.dataset.act, id);
+  });
+
   // account + sync
   $('#authForm').onsubmit = submitAuth;
   $('#authSwap').onclick = () => { authMode = authMode === 'up' ? 'in' : 'up'; syncAuthMode(); };
@@ -1820,6 +1946,7 @@ async function boot() {
   try { state.mapsKey = localStorage.getItem(KEY_STORE) || ''; } catch (e) { /* storage blocked */ }
   state.mapsKey = state.mapsKey || (window.TUFFEST_CONFIG && window.TUFFEST_CONFIG.mapsKey) || '';
   setTheme(document.documentElement.dataset.theme || 'white', false);
+  try { const v = localStorage.getItem(VIEW_STORE); if (VIEWS.some(x => x.id === v)) state.view = v; } catch (e) { /* storage blocked */ }
   bind();
   try { state.list = await DB.all(); } catch (e) { console.warn(e); }
   // bring older entries up to date: caption, optional title, and photo sizes (they drive the layout)
