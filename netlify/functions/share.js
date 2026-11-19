@@ -32,8 +32,9 @@ exports.handler = async event => {
     share = Array.isArray(rows) && rows[0] ? rows[0] : null;
   } catch (e) { /* fall through to the generic page */ }
 
-  const title = share ? `${share.title || 'A vibe'} · Tuffest` : 'Tuffest';
-  const desc = share ? (plain(share.caption) || 'A vibe on Tuffest.').slice(0, 200) : 'A vibe archive.';
+  const invite = share && share.invite;
+  const title = invite ? 'Come add vibes with me · Tuffest' : share ? `${share.title || 'A vibe'} · Tuffest` : 'Tuffest';
+  const desc = invite ? (plain(share.caption) || 'Open this, tap Add vibe, and we’ll keep one archive together.').slice(0, 200) : share ? (plain(share.caption) || 'A vibe on Tuffest.').slice(0, 200) : 'A vibe archive.';
   const photo = share && share.photos && share.photos[0];
 
   const html = `<!doctype html>

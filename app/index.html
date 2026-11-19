@@ -142,10 +142,26 @@
       <section class="field" id="acct" hidden>
         <span class="mono lbl">Account</span>
         <p class="acct-line" id="acctEmail"></p>
-        <p class="hint mono">Share your vibes. Send someone the invite link and they create their account right from it, already joined to this space.</p>
-        <button class="pill mono invite" id="inviteBtn" type="button">Invite someone</button>
-        <p class="hint mono">Or give them this space code to type in:</p>
-        <p class="acct-code mono" id="acctCode"></p>
+
+        <!-- paired: who, and what you call them -->
+        <div id="pairOn" hidden>
+          <span class="mono small">Paired with</span>
+          <p class="acct-line" id="pairWho"></p>
+          <label class="mono small" for="pairNick">What do you call them?</label>
+          <input type="text" id="pairNick" maxlength="40" placeholder="babe, bub, love…" autocomplete="off">
+          <p class="hint mono">Their vibes show up as “by” and the name you pick.</p>
+          <button class="pill mono invite" id="pairSave" type="button">Save name</button>
+        </div>
+
+        <!-- not paired yet: send your person an invite -->
+        <div id="pairOff">
+          <span class="mono small">Pair with my person</span>
+          <p class="hint mono">One message with a link and a code. They see a vibe, tap Add vibe, sign up, and you’re paired. Only two people fit in a space.</p>
+          <button class="pill mono invite" id="inviteBtn" type="button">Send invite</button>
+          <p class="hint mono">Your pairing code, if they’d rather type it:</p>
+          <p class="acct-code mono" id="acctCode"></p>
+        </div>
+
         <div class="acct-row">
           <button class="pill mono" id="syncNow" type="button">Sync now</button>
           <button class="mini" id="signOut" type="button">sign out</button>
@@ -184,9 +200,8 @@
         </figure>
       </div>
       <div class="story-link" id="storyLinkRow" hidden>
-        <button class="pill mono" id="storyLink" type="button">Share as a link</button>
-        <button class="mini" id="storyUnshare" type="button" hidden>stop sharing</button>
-        <p class="hint mono">Anyone with the link can view this vibe, even without an account.</p>
+        <button class="pill mono" id="storyLink" type="button">Send to my person</button>
+        <p class="hint mono">They’ll see this vibe, then sign up from it to pair with you.</p>
       </div>
       <button class="mini story-close" id="storyClose" type="button">close</button>
     </div>

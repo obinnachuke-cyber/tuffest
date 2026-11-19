@@ -627,7 +627,7 @@ function cardHTML(v, i) {
   const tilt = (i % 2 ? 1 : -1) * (1.2 + (i % 3) * 0.5);
   const caption = captionHTML(v);
   return `<article class="card" data-id="${v.id}" style="--r:${tilt}"><div class="card-in">
-    <div class="cap"><div class="cap-top mono"><span>${fmtDate(v.date)}</span></div>${v.title ? `<h3 class="title">${esc(v.title)}</h3>` : ''}</div>
+    <div class="cap"><div class="cap-top mono"><span>${fmtDate(v.date)}</span>${v.author && Cloud.user && v.author !== Cloud.user.id ? `<span>by ${esc(partnerName())}</span>` : ''}</div>${v.title ? `<h3 class="title">${esc(v.title)}</h3>` : ''}</div>
     ${photosHTML(v)}
     ${caption ? `<div class="write cap-lines">${caption}</div>` : ''}
     <div class="acts mono">${v.photos.length < MAX_PHOTOS ? '<button type="button" data-act="photos">+ photos</button>' : ''}<button type="button" data-act="share">share</button><button type="button" data-act="edit">edit</button><button type="button" data-act="del">delete</button></div>
@@ -995,6 +995,7 @@ async function persist(d, isUnfiled) {
     // cloud bookkeeping: where each photo lives online (null = not uploaded yet) and whether this needs pushing
     paths: d.photos.map(p => p.path || null),
     cloudPaths: existing ? existing.cloudPaths || [] : [],
+    author: (existing && existing.author) || (Cloud.user && Cloud.user.id) || null, // who added it (shown as "by <name>" to the other person)
     updatedAt: Date.now(),
     dirty: true,
   };
@@ -1629,8 +1630,7 @@ async function openStory(id) {
   });
   $('#storyOpts').classList.toggle('one', modes.length === 1);
   storyId = id;
-  $('#storyLinkRow').hidden = !Cloud.ready();                      // a link needs an account (the copy goes online)
-  $('#storyUnshare').hidden = !shareMap()[id];
+  $('#storyLinkRow').hidden = !(Cloud.ready() && !Cloud.pair.partnerEmail); // an invite is for pairing; once paired she already sees everything
   $('#toast').classList.remove('on'); // clear "Making your story…"
   $('#story').hidden = false;
   document.body.classList.add('locked');
@@ -1691,16 +1691,37 @@ const Cloud = {
   },
   async signOut() { await this.sb.auth.signOut(); this.user = this.space = null; },
 
-  /** Find this account's space, or join one with the invite code, or start a new one. */
+  /** Find this account's space. A brand-new account pairs through the invite it came from (or a typed
+      pairing code); with neither, it starts its own space. A space holds exactly two people. */
+  justPaired: false,
   async ensureSpace() {
     let r = await this.sb.rpc('my_space');
     if (r.error) throw r.error;
     if (r.data && r.data.length) return (this.space = r.data[0]);
+    const invite = (localStorage.getItem('tuffest.joininvite') || '').trim();
     const code = (localStorage.getItem('tuffest.joincode') || '').trim();
-    r = code ? await this.sb.rpc('join_space', { invite: code }) : await this.sb.rpc('create_space');
+    if (invite) r = await this.sb.rpc('join_via_invite', { t: invite });
+    else if (code) r = await this.sb.rpc('join_space', { invite: code });
+    else r = await this.sb.rpc('create_space');
     if (r.error) throw r.error;
-    localStorage.removeItem('tuffest.joincode');
+    this.justPaired = !!(invite || code);
     return (this.space = Array.isArray(r.data) ? r.data[0] : r.data);
+  },
+
+  /** Who I'm paired with and what I call them. */
+  pair: (() => { try { return JSON.parse(localStorage.getItem('tuffest.pair') || 'null') || { partnerEmail: null, nickname: '' }; } catch (e) { return { partnerEmail: null, nickname: '' }; } })(),
+  async loadPair() {
+    const { data, error } = await this.sb.rpc('my_pair');
+    if (error) throw error;
+    const row = data && data[0];
+    this.pair = { partnerEmail: (row && row.partner_email) || null, nickname: (row && row.nickname) || '' };
+    try { localStorage.setItem('tuffest.pair', JSON.stringify(this.pair)); } catch (e) { /* storage blocked */ }
+  },
+  async setNickname(n) {
+    const { error } = await this.sb.rpc('set_partner_nickname', { n });
+    if (error) throw error;
+    this.pair.nickname = n;
+    try { localStorage.setItem('tuffest.pair', JSON.stringify(this.pair)); } catch (e) { /* storage blocked */ }
   },
   /* remembered so the app can sync later even if it opens without a connection */
   cachedSpace() { try { return JSON.parse(localStorage.getItem('tuffest.space') || 'null'); } catch (e) { return null; } },
@@ -1743,7 +1764,7 @@ async function pushRecord(rec) {
     rec.updatedAt = rec.updatedAt || Date.now();
     const { error } = await sb.from('vibes').upsert({
       id: rec.id, space_id: space.id, date: rec.date, title: rec.title || '', caption: rec.caption,
-      gps: rec.gps || null, unfiled: !!rec.unfiled,
+      gps: rec.gps || null, unfiled: !!rec.unfiled, author: rec.author || (Cloud.user && Cloud.user.id) || null,
       photos: rec.paths.map((p, i) => ({ path: p, w: rec.dims[i][0], h: rec.dims[i][1] })),
       created_at: new Date(rec.createdAt).toISOString(), updated_at: new Date(rec.updatedAt).toISOString(),
     });
@@ -1780,7 +1801,7 @@ async function pullRow(row, local) {
   }
   const rec = {
     id: row.id, createdAt: Date.parse(row.created_at), date: row.date, title: row.title || '',
-    caption: row.caption || [], gps: row.gps || null, unfiled: !!row.unfiled,
+    caption: row.caption || [], gps: row.gps || null, unfiled: !!row.unfiled, author: row.author || null,
     photos, dims: row.photos.map(p => [p.w, p.h]),
     paths: row.photos.map(p => p.path), cloudPaths: row.photos.map(p => p.path),
     updatedAt: Date.parse(row.updated_at), dirty: false,
@@ -1851,12 +1872,15 @@ function syncAuthMode() {
   $('#authGo').textContent = up ? 'Create account' : 'Sign in';
   $('#authSwap').textContent = up ? 'I already have an account' : 'New here? Create an account';
   $('#authPass').autocomplete = up ? 'new-password' : 'current-password';
-  const invited = localStorage.getItem('tuffest.joincode');       // came in through an invite link
+  const invite = localStorage.getItem('tuffest.joininvite');      // came in through an invite link: pairing is automatic
+  const code = localStorage.getItem('tuffest.joincode');
+  $('#authCodeRow').hidden = !up || !!invite;                     // no code to type when the invite carries it
   $('#authNote').textContent = up
-    ? (invited ? 'You’ve been invited to a shared space. Create your account to join it.'
-      : 'Joining someone? Enter the space code they gave you. First one in? Leave it empty and you’ll get a code to share.')
+    ? (invite ? 'You’ve been invited. Create your account to pair up and start adding vibes together.'
+      : code ? 'You’ve been invited to a shared space. Create your account to join it.'
+      : 'Pairing with someone? Enter the pairing code they sent. First one in? Leave it empty and you’ll get a code to send.')
     : '';
-  if (up && invited) $('#authCode').value = invited;
+  if (up && code && !invite) $('#authCode').value = code;
   $('#authErr').hidden = true;
 }
 
@@ -1885,8 +1909,10 @@ async function submitAuth(e) {
   go.disabled = true; err.hidden = true;
   try {
     if (authMode === 'up') {
-      const code = $('#authCode').value.trim().toLowerCase();
-      if (code) localStorage.setItem('tuffest.joincode', code); else localStorage.removeItem('tuffest.joincode');
+      if (!$('#authCodeRow').hidden) { // the typed pairing code (not needed when an invite link brought them here)
+        const code = $('#authCode').value.trim().toLowerCase();
+        if (code) localStorage.setItem('tuffest.joincode', code); else localStorage.removeItem('tuffest.joincode');
+      }
       const data = await Cloud.signUp(email, pass);
       if (!data.session) { // the project asks for email confirmation first
         authMode = 'in'; syncAuthMode();
@@ -1898,44 +1924,62 @@ async function submitAuth(e) {
     hideAuth();
   } catch (ex) {
     console.warn(ex);
+    if (Cloud.user && !Cloud.space) { // signed up, but pairing failed (e.g. the space already has two people): don't leave them half signed in
+      try { localStorage.removeItem('tuffest.joininvite'); localStorage.removeItem('tuffest.joincode'); } catch (e) { /* storage blocked */ }
+      await Cloud.signOut().catch(() => {});
+      authMode = 'in'; syncAuthMode();
+    }
     err.textContent = authMessage(ex); err.hidden = false;
   } finally { go.disabled = false; }
-}
-
-/** The link someone taps to join this space: the sign-up page opens with the code already in. */
-function inviteLink() {
-  const code = $('#acctCode').textContent.trim();
-  return code ? `${location.origin}${location.pathname}?join=${encodeURIComponent(code)}` : '';
-}
-
-async function shareInvite() {
-  const url = inviteLink();
-  if (!url) return toast('Sign in first');
-  try {
-    if (navigator.share) { await navigator.share({ title: 'Tuffest', text: 'Come add to our vibes on Tuffest:', url }); return; }
-  } catch (e) { if (e.name === 'AbortError') return; }              // closed the share sheet: nothing to do
-  try { await navigator.clipboard.writeText(url); toast('Invite link copied. Paste it into a message'); }
-  catch (e) { window.prompt('Copy this invite link:', url); }
 }
 
 async function afterLogin() {
   try {
     await Cloud.ensureSpace();
-    localStorage.removeItem('tuffest.joincode');                   // used up (or not needed)
     try { localStorage.setItem('tuffest.space', JSON.stringify({ id: Cloud.space.id, code: Cloud.space.code })); } catch (e) { /* storage blocked */ }
   } catch (e) {
     const cached = Cloud.cachedSpace();             // offline: carry on with the space we already know
     if (!cached) throw e;
     Cloud.space = cached;
   }
+  const hadInvite = localStorage.getItem('tuffest.joininvite') || localStorage.getItem('tuffest.joincode');
+  localStorage.removeItem('tuffest.joininvite');    // used up (or not needed)
+  localStorage.removeItem('tuffest.joincode');
+  if (Cloud.justPaired) { toast('You’re paired. Everything either of you adds shows up for both.'); Cloud.justPaired = false; }
+  else if (hadInvite) toast('This account already has its own vibes, so the invite wasn’t used');
+  try { await Cloud.loadPair(); } catch (e) { /* offline: keep the last known pairing */ }
   updateAccountUI();
   await syncAll();
+  render(); // so "by <name>" shows on your person's vibes
 }
 
+/** Account part of settings: paired-with + what you call them, or the invite button while you're still on your own. */
 function updateAccountUI() {
   const on = Cloud.ready();
   $('#acct').hidden = !on;
-  if (on) { $('#acctEmail').textContent = Cloud.user.email; $('#acctCode').textContent = Cloud.space.code; }
+  if (!on) return;
+  $('#acctEmail').textContent = Cloud.user.email;
+  $('#acctCode').textContent = Cloud.space.code;
+  const paired = !!Cloud.pair.partnerEmail;
+  $('#pairOn').hidden = !paired;
+  $('#pairOff').hidden = paired;
+  if (paired) {
+    $('#pairWho').textContent = partnerName() + (Cloud.pair.nickname ? ` (${Cloud.pair.partnerEmail})` : '');
+    $('#pairNick').value = Cloud.pair.nickname;
+  }
+}
+
+/** What you call your person: the name you set, else the start of their email. */
+const partnerName = () => Cloud.pair.nickname || (Cloud.pair.partnerEmail || '').split('@')[0] || 'my person';
+
+async function saveNickname() {
+  const n = $('#pairNick').value.trim();
+  try {
+    await Cloud.setNickname(n);
+    updateAccountUI();
+    render();
+    toast(n ? `Saved. Their vibes now say “by ${n}”` : 'Name cleared');
+  } catch (e) { console.warn(e); toast('Couldn’t save that. Try again'); }
 }
 
 async function signOutNow() {
@@ -1956,14 +2000,14 @@ async function signOutNow() {
   showAuth();
 }
 
-/* ============================== share a link ======================== */
-/* "Share as a link" puts a snapshot of one vibe (date, title, caption, photos) online under a long random
-   token. The link  https://SITE/s/TOKEN  previews in messages (netlify/functions/share.js) and opens the
-   vibe for anyone, signed in or not. Nothing else in the space is reachable from it. */
+/* ============================== pair with my person ================= */
+/* The invite is for one person: yours. "Send to my person" makes a private invite (a long random token,
+   good for 30 days) that carries one vibe to look at. The message holds a link and a pairing code.
+   Opening the link shows that vibe in its folder with "Add vibe" underneath; she isn't signed in, so
+   tapping it asks her to sign up, and signing up pairs her to you: same space, two people.
+   The link page and its message preview come from netlify/functions/share.js. */
 let storyId = null;
 
-const shareMap = () => { try { return JSON.parse(localStorage.getItem('tuffest.shares') || '{}'); } catch (e) { return {}; } };
-const saveShareMap = m => { try { localStorage.setItem('tuffest.shares', JSON.stringify(m)); } catch (e) { /* storage blocked */ } };
 const newToken = () => {
   const a = new Uint8Array(12);
   crypto.getRandomValues(a);
@@ -1971,81 +2015,81 @@ const newToken = () => {
 };
 const shareUrl = token => `${location.origin}/s/${token}`;
 
-/** Upload public copies of the photos and write the snapshot row. Returns the token. */
-async function createShare(v) {
+/** The vibe an invite shows when you send it from settings: your newest one. */
+const latestVibe = () => filed().sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt)[0] || null;
+
+/** Put a snapshot of the vibe (or just a welcome, if there's no vibe yet) online under a fresh invite token. */
+async function createInvite(v) {
   const { sb, space } = Cloud;
-  const map = shareMap();
-  const token = map[v.id] || newToken();               // sharing the same vibe again reuses (and refreshes) its link
-  const urls = [];
-  for (let i = 0; i < v.photos.length; i++) {
-    const path = `${space.id}/${token}/${i}.jpg`;
-    const { error } = await sb.storage.from('shared').upload(path, v.photos[i], { contentType: 'image/jpeg', upsert: true });
-    if (error) throw error;
-    urls.push(sb.storage.from('shared').getPublicUrl(path).data.publicUrl + `?t=${v.updatedAt || 0}`);
+  const token = newToken();
+  const photos = [];
+  if (v) {
+    for (let i = 0; i < v.photos.length; i++) {
+      const path = `${space.id}/${token}/${i}.jpg`;
+      const { error } = await sb.storage.from('shared').upload(path, v.photos[i], { contentType: 'image/jpeg', upsert: true });
+      if (error) throw error;
+      photos.push({ url: sb.storage.from('shared').getPublicUrl(path).data.publicUrl, w: v.dims[i][0], h: v.dims[i][1] });
+    }
   }
   const { error } = await sb.from('shares').upsert({
-    token, vibe_id: v.id, space_id: space.id, date: v.date, title: v.title || '', caption: v.caption,
-    photos: v.photos.map((_, i) => ({ url: urls[i], w: v.dims[i][0], h: v.dims[i][1] })),
-    updated_at: new Date().toISOString(),
+    token, vibe_id: v ? v.id : '', space_id: space.id,
+    date: v ? v.date : todayISO(), title: v ? v.title || '' : '', caption: v ? v.caption : [], photos,
+    invite: true, expires_at: new Date(Date.now() + 30 * 864e5).toISOString(), updated_at: new Date().toISOString(),
   });
   if (error) throw error;
-  map[v.id] = token;
-  saveShareMap(map);
   return token;
 }
 
-async function shareLinkNow() {
-  const v = state.list.find(x => x.id === storyId);
-  if (!v || !Cloud.ready()) return toast('Sign in to share a link');
-  const btn = $('#storyLink');
-  btn.disabled = true;
-  toast('Making your link…');
+/** Make the invite and hand it to the share sheet (phones) or the clipboard (computers). */
+async function sendInvite(v) {
+  if (!Cloud.ready()) return toast('Sign in first');
+  toast('Making the invite…');
+  let url;
+  try { url = shareUrl(await createInvite(v)); }
+  catch (e) { console.warn(e); return toast('Couldn’t make the invite. Has supabase-pair.sql been run?'); }
+  $('#toast').classList.remove('on');
+  const code = Cloud.space.code;
+  const text = `Come add vibes with me on Tuffest. Open the link, then tap Add vibe. Pairing code: ${code}`;
   try {
-    const url = shareUrl(await createShare(v));
-    $('#storyUnshare').hidden = false;
-    $('#toast').classList.remove('on');
-    try {
-      if (navigator.share) { await navigator.share({ title: v.title || 'A vibe', text: 'Look at this vibe:', url }); return; }
-    } catch (e) { if (e.name === 'AbortError') return; }
-    try { await navigator.clipboard.writeText(url); toast('Link copied. Paste it into a message'); }
-    catch (e) { window.prompt('Copy this link:', url); }
-  } catch (e) {
-    console.warn(e);
-    toast('Couldn’t make the link. Is the share setup (supabase-share.sql) run?');
-  } finally { btn.disabled = false; }
+    if (navigator.share) { await navigator.share({ title: 'Tuffest', text, url }); return; }
+  } catch (e) { if (e.name === 'AbortError') return; }                 // closed the share sheet: nothing to do
+  try { await navigator.clipboard.writeText(`${text}\n${url}`); toast('Invite copied. Paste it into a message'); }
+  catch (e) { window.prompt('Copy this invite:', `${text}\n${url}`); }
 }
 
-/** Take the link down: the snapshot row and its public photo copies are deleted. */
-async function stopSharing() {
-  const map = shareMap(), token = map[storyId];
-  if (!token || !Cloud.ready()) return;
-  if (!confirm('Stop sharing? The link will stop working.')) return;
-  try {
-    await Cloud.sb.from('shares').delete().eq('token', token);
-    await Cloud.sb.storage.from('shared').remove([0, 1, 2, 3].map(i => `${Cloud.space.id}/${token}/${i}.jpg`)).catch(() => {});
-    delete map[storyId];
-    saveShareMap(map);
-    $('#storyUnshare').hidden = true;
-    toast('Link turned off');
-  } catch (e) { console.warn(e); toast('Couldn’t turn the link off. Try again'); }
-}
-
-/* --- the page a shared link opens --- */
+/* --- the page her link opens: your vibe in its folder, then "Add vibe" --- */
 function sharedCardHTML(s, token) {
-  const dims = s.photos.map(p => [p.w || 4, p.h || 3]);
-  const frames = framesHTML(layoutOf(dims), s.photos.map(p => esc(p.url)));
-  const v = { id: token, caption: s.caption || [] }; // same caption layout as a card: one place per line, steady random offsets
-  const caption = captionHTML(v);
-  return `<article class="card static"><div class="card-in">
-    <div class="cap"><div class="cap-top mono"><span>${fmtDate(s.date)}</span></div>${s.title ? `<h3 class="title">${esc(s.title)}</h3>` : ''}</div>
-    ${frames}
-    ${caption ? `<div class="write cap-lines">${caption}</div>` : ''}
-  </div></article>`;
+  const has = s.photos && s.photos.length > 0;
+  const [y, m] = s.date.split('-').map(Number), month = m - 1;
+  let card;
+  if (has) {
+    const frames = framesHTML(layoutOf(s.photos.map(p => [p.w || 4, p.h || 3])), s.photos.map(p => esc(p.url)));
+    const caption = captionHTML({ id: token, caption: s.caption || [] }); // same look as a card: one place per line
+    card = `<article class="card static"><div class="card-in">
+      <div class="cap"><div class="cap-top mono"><span>${fmtDate(s.date)}</span></div>${s.title ? `<h3 class="title">${esc(s.title)}</h3>` : ''}</div>
+      ${frames}
+      ${caption ? `<div class="write cap-lines">${caption}</div>` : ''}
+    </div></article>`;
+  } else { // an invite sent before there were any vibes
+    card = `<article class="card static"><div class="card-in">
+      <div class="cap"><h3 class="title">Come add vibes with me</h3></div>
+      <div class="write"><p>Make your account and we’ll keep one archive together.</p></div>
+    </div></article>`;
+  }
+  const label = has ? `${MONTHS[month]} ${y}` : 'Tuffest';
+  return `<section class="folder open static" style="--c:${PALETTE[month % PALETTE.length]}; --x:0%">
+    <div class="tab-row"><button class="tab" type="button" tabindex="-1"><span>${label}</span></button></div>
+    <div class="plate"><div class="strip"><span class="meta mono">${has ? `${MON3[month]} ${y} · 1 vibe` : 'new folder'}</span></div>
+      <div class="collapse"><div class="collapse-in"><div class="collapse-pad">${card}</div></div></div></div>
+  </section>`;
 }
+
+let sharedIsInvite = false, sharedToken = '';
 
 async function showShared(token) {
   const box = $('#sharedCard');
   box.innerHTML = '';
+  sharedToken = token;
   $('#shared').hidden = false;
   document.body.classList.add('locked');
   let share = null;
@@ -2055,10 +2099,15 @@ async function showShared(token) {
     share = data && data[0];
   } catch (e) { console.warn(e); }
   if (!share) {
-    box.innerHTML = '<p class="shared-gone">This vibe isn’t shared anymore.</p>';
+    box.innerHTML = '<p class="shared-gone">This invite isn’t available anymore.</p>';
     $('#sharedAdd').textContent = 'Make your own';
+    sharedIsInvite = false;
     return;
   }
+  sharedIsInvite = !!share.invite;
+  $('#sharedNote').textContent = sharedIsInvite
+    ? 'Add a vibe and you’ll be paired. Your photos and theirs live in one archive.'
+    : 'Shared from Tuffest. Make a page of your own vibes.';
   $('#sharedOpen').textContent = Cloud.ready() ? 'go to my vibes' : 'I already have an account';
   box.innerHTML = sharedCardHTML(share, token);
   requestAnimationFrame(() => placeLines(box));
@@ -2079,11 +2128,14 @@ function openFromShared() {
   if (!Cloud.ready()) { authMode = 'in'; showAuth(); }
 }
 
-/** "Add vibe" on a shared vibe: signed-in people go straight to adding; everyone else signs up first (their own space). */
+/** "Add vibe" on the invite page. Not signed in: sign up first, and signing up pairs her to whoever sent it. */
 function addFromShared() {
   hideShared();
   if (Cloud.ready()) { $('#fileInput').click(); return; }
-  try { localStorage.removeItem('tuffest.joincode'); } catch (e) { /* storage blocked */ } // a fresh account, not the sender's space
+  try {
+    localStorage.removeItem('tuffest.joincode');
+    if (sharedIsInvite) localStorage.setItem('tuffest.joininvite', sharedToken); else localStorage.removeItem('tuffest.joininvite');
+  } catch (e) { /* storage blocked */ }
   authMode = 'up';
   showAuth();
 }
@@ -2117,8 +2169,7 @@ function bind() {
     $('.keep', opt).onclick = () => saveStory(opt.dataset.mode);
   });
   $('#storyClose').onclick = closeStory;
-  $('#storyLink').onclick = shareLinkNow;
-  $('#storyUnshare').onclick = stopSharing;
+  $('#storyLink').onclick = () => sendInvite(state.list.find(x => x.id === storyId));
   $('#sharedAdd').onclick = addFromShared;
   $('#sharedOpen').onclick = openFromShared;
   $('#story').onclick = e => { if (e.target.id === 'story') closeStory(); };
@@ -2148,7 +2199,8 @@ function bind() {
   $('#authForm').onsubmit = submitAuth;
   $('#authSwap').onclick = () => { authMode = authMode === 'up' ? 'in' : 'up'; syncAuthMode(); };
   $('#syncNow').onclick = () => { toast('Syncing…'); syncAll(); };
-  $('#inviteBtn').onclick = shareInvite;
+  $('#inviteBtn').onclick = () => sendInvite(latestVibe());
+  $('#pairSave').onclick = saveNickname;
   $('#signOut').onclick = signOutNow;
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAll(); });
   window.addEventListener('online', syncAll);

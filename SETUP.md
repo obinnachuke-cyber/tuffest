@@ -34,11 +34,13 @@ Go to **app.netlify.com/drop** and drag the whole `app` folder onto the page. Op
 - Signing out removes the local copy from that phone (it stays in the cloud).
 - Don't share the `service_role` key anywhere. Only the `anon` key goes in `config.js`.
 
-## Share a vibe by link (optional, one more step)
-This lets you send a link to one vibe over Messages; anyone can open it without an account, and under the vibe there's an **Add vibe** button that asks them to sign up.
+## Pair with your person
+A space holds exactly two people: you and your person. You send one invite; she signs up from it and she's paired.
 
-1. In Supabase, open **SQL Editor → New query**, paste everything from `app/supabase-share.sql`, press **Run**.
-2. Push the repo to GitHub (it now includes `netlify.toml` and `netlify/functions/share.js`). Netlify picks both up by itself; no settings to change.
-3. In Tuffest, tap **share** on a vibe, then **Share as a link**. **Stop sharing** turns the link off again.
+1. In Supabase, **SQL Editor → New query**: run `app/supabase-share.sql`, then `app/supabase-pair.sql` (each once).
+2. Push the repo to GitHub. It includes `netlify.toml` and `netlify/functions/share.js`, which Netlify picks up by itself.
+3. In Tuffest: **settings → Send invite** (or open a vibe → **share → Send to my person**). Send the message to her.
+4. She opens the link, sees the vibe in its folder, taps **Add vibe**, signs up, and you're paired. She can also type your **pairing code** instead.
+5. Once paired, **settings** shows who you're paired with and lets you set what you call her. Her vibes show as "by <that name>".
 
-The preview shown in Messages (title, caption, first photo) comes from the small function in `netlify/functions/share.js`.
+Invites work for 30 days and only show the one vibe you picked. Nothing else in your archive is visible until she signs up.
