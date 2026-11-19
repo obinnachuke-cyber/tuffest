@@ -71,12 +71,12 @@ function mapsLink(s) {
 const locLabel = s => s.name || fmtCoords(s.lat, s.lng);
 
 let toastTimer;
-function toast(msg) {
+function toast(msg, ms = 2600) {
   const t = $('#toast');
   t.textContent = msg;
   t.classList.add('on');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('on'), 2600);
+  toastTimer = setTimeout(() => t.classList.remove('on'), ms);
 }
 
 /* ============================== storage ============================= */
@@ -1854,6 +1854,7 @@ async function syncAll() {
     Cloud.setKnown(new Set([...rows.map(r => r.id), ...state.list.filter(v => !v.dirty).map(v => v.id)]));
     if (changed) render();
     setSync('synced');
+    refreshPair(); // every sync is also a chance to notice that your person has joined
   } catch (e) {
     console.warn(e);
     setSync('offline · will retry');
@@ -1945,18 +1946,62 @@ async function afterLogin() {
   const hadInvite = localStorage.getItem('tuffest.joininvite') || localStorage.getItem('tuffest.joincode');
   localStorage.removeItem('tuffest.joininvite');    // used up (or not needed)
   localStorage.removeItem('tuffest.joincode');
-  if (Cloud.justPaired) { toast('You’re paired. Everything either of you adds shows up for both.'); Cloud.justPaired = false; }
-  else if (hadInvite) toast('This account already has its own vibes, so the invite wasn’t used');
+  const wasPaired = !!Cloud.pair.partnerEmail;
   try { await Cloud.loadPair(); } catch (e) { /* offline: keep the last known pairing */ }
+  if (Cloud.justPaired) { toast(`You’re paired with ${pairedWho()}. Everything either of you adds shows up for both.`, 7000); Cloud.justPaired = false; }
+  else if (hadInvite) toast('This account already has its own vibes, so the invite wasn’t used');
+  else if (!wasPaired && Cloud.pair.partnerEmail) announcePaired(); // they joined while the app was closed
   updateAccountUI();
   await syncAll();
+  watchPair();
   render(); // so "by <name>" shows on your person's vibes
+}
+
+/** Who you're paired with, for messages: "babe (her@email.com)", or just the email until you've named them. */
+const pairedWho = () => Cloud.pair.nickname ? `${Cloud.pair.nickname} (${Cloud.pair.partnerEmail})` : (Cloud.pair.partnerEmail || 'your person');
+
+/** The moment your person joins: say so, loudly enough to notice. */
+function announcePaired() {
+  try { localStorage.removeItem('tuffest.inviteSent'); } catch (e) { /* storage blocked */ }
+  toast(`${pairedWho()} just paired with you`, 8000);
+}
+
+/** The footer line: nothing while you're on your own, "waiting" once an invite is out, then who you're paired with. */
+function updatePairStatus() {
+  let text = '';
+  if (Cloud.ready()) {
+    if (Cloud.pair.partnerEmail) text = `paired with ${partnerName()}`;
+    else if (localStorage.getItem('tuffest.inviteSent')) text = 'invite sent · waiting for your person';
+  }
+  $('#pairState').textContent = text ? `· ${text}` : '';
+}
+
+/** Ask whether your person has joined yet. Cheap, so it runs on every sync as well as on a timer. */
+async function refreshPair() {
+  if (!Cloud.ready()) return;
+  const was = !!Cloud.pair.partnerEmail;
+  try { await Cloud.loadPair(); } catch (e) { return; } // offline: try again next time
+  updateAccountUI();
+  if (!was && Cloud.pair.partnerEmail) {
+    announcePaired();
+    clearInterval(pairTimer);
+    render(); // their vibes now say "by <name>"
+  }
+}
+
+/** While the app is open and you're still unpaired, look every 20 seconds so you hear about it right away. */
+let pairTimer = null;
+function watchPair() {
+  clearInterval(pairTimer);
+  if (!Cloud.ready() || Cloud.pair.partnerEmail) return;
+  pairTimer = setInterval(() => { if (!document.hidden) refreshPair(); }, 20000);
 }
 
 /** Account part of settings: paired-with + what you call them, or the invite button while you're still on your own. */
 function updateAccountUI() {
   const on = Cloud.ready();
   $('#acct').hidden = !on;
+  updatePairStatus();
   if (!on) return;
   $('#acctEmail').textContent = Cloud.user.email;
   $('#acctCode').textContent = Cloud.space.code;
@@ -1986,7 +2031,9 @@ async function signOutNow() {
   const unsynced = state.list.filter(v => v.dirty).length;
   if (unsynced && !confirm(`${unsynced} vibe${unsynced > 1 ? 's haven’t' : ' hasn’t'} synced yet and would be lost. Sign out anyway?`)) return;
   await Cloud.signOut();
-  try { localStorage.removeItem('tuffest.space'); } catch (e) { /* storage blocked */ }
+  clearInterval(pairTimer);
+  Cloud.pair = { partnerEmail: null, nickname: '' };   // pairing belongs to the account that just left
+  try { localStorage.removeItem('tuffest.space'); localStorage.removeItem('tuffest.pair'); localStorage.removeItem('tuffest.inviteSent'); } catch (e) { /* storage blocked */ }
   await DB.clear();                         // this phone's copy belongs to the account that just left
   state.urls.forEach(urls => urls.forEach(u => URL.revokeObjectURL(u)));
   state.urls.clear();
@@ -2128,6 +2175,9 @@ async function sendInvite(v) {
   try { url = shareUrl(await createInvite(v)); }
   catch (e) { console.warn(e); return toast('Couldn’t make the invite. Has supabase-pair.sql been run?'); }
   $('#toast').classList.remove('on');
+  try { localStorage.setItem('tuffest.inviteSent', String(Date.now())); } catch (e) { /* storage blocked */ }
+  updatePairStatus();   // footer now says "waiting for your person"
+  watchPair();
   const code = Cloud.space.code;
   const text = `Come add vibes with me on wesotuf. Open the link, then tap Add vibe. Pairing code: ${code}`;
   try {
