@@ -2018,6 +2018,37 @@ const shareUrl = token => `${location.origin}/s/${token}`;
 /** The vibe an invite shows when you send it from settings: your newest one. */
 const latestVibe = () => filed().sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt)[0] || null;
 
+/** The picture message apps show with the link: the vibe's photos in their real shapes (same layout as the card),
+    as a card on the app's light blue, 1200 x 630 (the size link previews use). */
+async function renderPreviewImage(v) {
+  const bmps = await Promise.all(v.photos.map(b => createImageBitmap(b)));
+  const lay = layoutOf(bmps.map(b => [b.width, b.height]));
+  const W = 1200, H = 630, frame = 14, boxW = W - 2 * 40 - 2 * frame, boxH = H - 2 * 40 - 2 * frame;
+  const bw = Math.min(boxW, boxH / lay.H), bh = bw * lay.H;     // the layout block, scaled to fit, never stretched
+  const ox = (W - bw) / 2, oy = (H - bh) / 2;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#d9e8ff';
+  g.fillRect(0, 0, W, H);
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,.28)'; g.shadowBlur = 36; g.shadowOffsetY = 14;
+  g.fillStyle = '#f3f1ec';
+  roundRectPath(g, ox - frame, oy - frame, bw + 2 * frame, bh + 2 * frame, 6);
+  g.fill();
+  g.restore();
+  lay.cells.forEach((cell, i) => {
+    const b = bmps[i], x = ox + cell.x * bw, y = oy + cell.y * bw, w = cell.w * bw, h = cell.h * bw;
+    const k = Math.max(w / b.width, h / b.height);
+    g.save();
+    g.beginPath(); g.rect(x, y, w, h); g.clip();
+    g.drawImage(b, x + (w - b.width * k) / 2, y + (h - b.height * k) / 2, b.width * k, b.height * k);
+    g.restore();
+  });
+  bmps.forEach(b => b.close && b.close());
+  return new Promise(res => c.toBlob(res, 'image/jpeg', 0.82));
+}
+
 /** Put a snapshot of the vibe (or just a welcome, if there's no vibe yet) online under a fresh invite token. */
 async function createInvite(v) {
   const { sb, space } = Cloud;
@@ -2030,6 +2061,11 @@ async function createInvite(v) {
       if (error) throw error;
       photos.push({ url: sb.storage.from('shared').getPublicUrl(path).data.publicUrl, w: v.dims[i][0], h: v.dims[i][1] });
     }
+    try { // the link-preview picture sits beside the photos as og.jpg; the preview page looks for it by name
+      const og = await renderPreviewImage(v);
+      const { error: ogError } = await sb.storage.from('shared').upload(`${space.id}/${token}/og.jpg`, og, { contentType: 'image/jpeg', upsert: true });
+      if (ogError) throw ogError;
+    } catch (e) { console.warn('preview picture skipped', e); }          // the preview falls back to the first photo
   }
   const { error } = await sb.from('shares').upsert({
     token, vibe_id: v ? v.id : '', space_id: space.id,

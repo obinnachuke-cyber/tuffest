@@ -1,8 +1,10 @@
-# Netlify settings for Tuffest.
-# A shared-vibe link looks like  https://YOUR-SITE/s/TOKEN ; this hands it to the small function
-# in netlify/functions/share.js, which builds the page that message apps preview.
+# Netlify settings for wesotuf.
+# An invite link looks like  https://YOUR-SITE/s/TOKEN . This hands it to the small function in
+# netlify/functions/share.js, which builds the page message apps preview (the vibe's title,
+# caption and a picture). The token goes in the path; the function also reads it from the
+# original address, so it doesn't depend on one specific redirect behaviour.
 [[redirects]]
   from = "/s/*"
-  to = "/.netlify/functions/share?t=:splat"
+  to = "/.netlify/functions/share/:splat"
   status = 200
   force = true
