@@ -160,6 +160,12 @@
           <button class="pill mono invite" id="inviteBtn" type="button">Send invite</button>
           <p class="hint mono">Your pairing code, if they’d rather type it:</p>
           <p class="acct-code mono" id="acctCode"></p>
+
+          <!-- already have an account? pair with someone else's code instead -->
+          <span class="mono small">Got a code from your person?</span>
+          <input type="text" id="pairCode" placeholder="their pairing code" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <p class="hint mono">Your vibes so far move into your shared space.</p>
+          <button class="pill mono invite" id="pairCodeBtn" type="button">Pair with them</button>
         </div>
 
         <div class="acct-row">

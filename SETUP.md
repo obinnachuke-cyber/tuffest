@@ -44,3 +44,7 @@ A space holds exactly two people: you and your person. You send one invite; she 
 5. Once paired, **settings** shows who you're paired with and lets you set what you call her. Her vibes show as "by <that name>".
 
 Invites work for 30 days and only show the one vibe you picked. Nothing else in your archive is visible until she signs up.
+
+## Pairing after you've already made an account
+Run `app/supabase-switch.sql` once (after the other three). Then an account that has only ever been on its own can pair later: open the invite link while signed in and tap **Pair with them**, or type their pairing code in **settings → Got a code from your person?**. Its vibes move into the shared space and its own empty space closes. An account that's already paired with someone else can't move, and a space still holds exactly two people.
+

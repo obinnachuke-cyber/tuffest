@@ -1943,18 +1943,79 @@ async function afterLogin() {
     if (!cached) throw e;
     Cloud.space = cached;
   }
-  const hadInvite = localStorage.getItem('tuffest.joininvite') || localStorage.getItem('tuffest.joincode');
+  const inviteTok = localStorage.getItem('tuffest.joininvite') || '';   // came in through an invite link or a typed code
+  const codeTyped = localStorage.getItem('tuffest.joincode') || '';
   localStorage.removeItem('tuffest.joininvite');    // used up (or not needed)
   localStorage.removeItem('tuffest.joincode');
   const wasPaired = !!Cloud.pair.partnerEmail;
+  const joinedNow = Cloud.justPaired;               // a brand-new account that joined while signing up
   try { await Cloud.loadPair(); } catch (e) { /* offline: keep the last known pairing */ }
-  if (Cloud.justPaired) { toast(`You’re paired with ${pairedWho()}. Everything either of you adds shows up for both.`, 7000); Cloud.justPaired = false; }
-  else if (hadInvite) toast('This account already has its own vibes, so the invite wasn’t used');
+  if (joinedNow) { toast(`You’re paired with ${pairedWho()}. Everything either of you adds shows up for both.`, 7000); Cloud.justPaired = false; }
   else if (!wasPaired && Cloud.pair.partnerEmail) announcePaired(); // they joined while the app was closed
   updateAccountUI();
   await syncAll();
+  // an account that ALREADY existed came in through an invite or code: pair it now (it asks first)
+  if ((inviteTok || codeTyped) && !joinedNow) {
+    if (Cloud.pair.partnerEmail) toast('You’re already paired, so that invite wasn’t used');
+    else await pairExisting({ invite: inviteTok, code: inviteTok ? '' : codeTyped });
+  }
   watchPair();
   render(); // so "by <name>" shows on your person's vibes
+}
+
+const PAIR_REASONS = {
+  not_signed_in: 'Sign in first.',
+  invite_expired: 'That invite has expired. Ask for a new one.',
+  code_unknown: 'That pairing code doesn’t exist. Check it and try again.',
+  already_in_space: 'You’re already in that space.',
+  space_full: 'That space already has two people.',
+  already_paired: 'You’re already paired with someone else.',
+};
+
+/** Pair an account that already exists, by invite link or typed code. The account's own solo space closes and its
+    vibes move into the shared one. It checks first (changing nothing), asks, then moves; if the move fails the
+    vibes go back up to where they were. The phone keeps its own copies throughout, so nothing is lost. */
+async function pairExisting({ invite = '', code = '' }) {
+  if (!Cloud.ready() || (!invite && !code)) return false;
+  const { sb } = Cloud;
+  const chk = await sb.rpc('check_pairing', { t: invite || null, c: code || null });
+  if (chk.error) { console.warn(chk.error); toast('Couldn’t check that. Has supabase-switch.sql been run?'); return false; }
+  const row = chk.data && chk.data[0];
+  if (!row || !row.ok) { toast(PAIR_REASONS[row && row.reason] || 'That pairing can’t go ahead.'); return false; }
+
+  const n = state.list.length;
+  const go = confirm(n
+    ? `Pair up? Your ${n} vibe${n > 1 ? 's' : ''} will move into the shared space with them, and your own space closes.`
+    : 'Pair up with them? Your own empty space closes and you join theirs.');
+  if (!go) return false;
+
+  setSync('pairing…');
+  // put every vibe back up from this phone's copy into whichever space the account ends up in
+  const reupload = async () => {
+    for (const v of state.list) { v.paths = v.photos.map(() => null); v.cloudPaths = []; v.dirty = true; await DB.put(v); }
+  };
+  try {
+    // clear the old online copies while the account still belongs to the old space
+    const oldPaths = state.list.flatMap(v => v.cloudPaths || []);
+    if (oldPaths.length) await sb.storage.from('photos').remove(oldPaths).catch(() => {});
+    await sb.from('vibes').delete().eq('space_id', Cloud.space.id);
+    const r = invite ? await sb.rpc('join_via_invite', { t: invite }) : await sb.rpc('join_space', { invite: code });
+    if (r.error) { await reupload(); await syncAll(); toast(authMessage(r.error)); return false; }
+    Cloud.space = Array.isArray(r.data) ? r.data[0] : r.data;
+    try { localStorage.setItem('tuffest.space', JSON.stringify({ id: Cloud.space.id, code: Cloud.space.code })); } catch (e) { /* storage blocked */ }
+    await reupload();
+    try { await Cloud.loadPair(); } catch (e) { /* offline: it shows up on the next sync */ }
+    updateAccountUI();
+    await syncAll();
+    render();
+    toast(`You’re paired with ${pairedWho()}. Everything either of you adds shows up for both.`, 7000);
+    return true;
+  } catch (e) {
+    console.warn(e);
+    await reupload(); await syncAll();
+    toast('Couldn’t pair just now. Nothing was lost, try again.');
+    return false;
+  }
 }
 
 /** Who you're paired with, for messages: "babe (her@email.com)", or just the email until you've named them. */
@@ -2235,9 +2296,13 @@ async function showShared(token) {
     return;
   }
   sharedIsInvite = !!share.invite;
-  $('#sharedNote').textContent = sharedIsInvite
-    ? 'Add a vibe and you’ll be paired. Your photos and theirs live in one archive.'
-    : 'Shared from wesotuf. Make a page of your own vibes.';
+  const canPair = sharedIsInvite && Cloud.ready() && !Cloud.pair.partnerEmail; // already has an account and isn't paired yet
+  $('#sharedAdd').textContent = canPair ? 'Pair with them' : 'Add vibe';
+  $('#sharedNote').textContent = canPair
+    ? 'Pairing moves your vibes into one shared archive with them.'
+    : sharedIsInvite
+      ? (Cloud.ready() ? 'Shared with you.' : 'Add a vibe and you’ll be paired. Your photos and theirs live in one archive.')
+      : 'Shared from wesotuf. Make a page of your own vibes.';
   $('#sharedOpen').textContent = Cloud.ready() ? 'go to my vibes' : 'I already have an account';
   box.innerHTML = sharedCardHTML(share, token);
   requestAnimationFrame(() => placeLines(box));
@@ -2255,13 +2320,23 @@ function hideShared() {
 /** The small link under "Add vibe": back to your own vibes, or sign in if you already have an account. */
 function openFromShared() {
   hideShared();
-  if (!Cloud.ready()) { authMode = 'in'; showAuth(); }
+  if (!Cloud.ready()) {
+    // already has an account: remember the invite, so signing in offers to pair
+    try { if (sharedIsInvite) localStorage.setItem('tuffest.joininvite', sharedToken); } catch (e) { /* storage blocked */ }
+    authMode = 'in'; showAuth();
+  }
 }
 
-/** "Add vibe" on the invite page. Not signed in: sign up first, and signing up pairs her to whoever sent it. */
+/** The big button on the invite page.
+    Not signed in: sign up first, and signing up pairs her to whoever sent it.
+    Signed in, not paired: it pairs this account (moving its vibes). Signed in and paired: it just adds a vibe. */
 function addFromShared() {
   hideShared();
-  if (Cloud.ready()) { $('#fileInput').click(); return; }
+  if (Cloud.ready()) {
+    if (sharedIsInvite && !Cloud.pair.partnerEmail) { pairExisting({ invite: sharedToken }); return; }
+    $('#fileInput').click();
+    return;
+  }
   try {
     localStorage.removeItem('tuffest.joincode');
     if (sharedIsInvite) localStorage.setItem('tuffest.joininvite', sharedToken); else localStorage.removeItem('tuffest.joininvite');
@@ -2331,6 +2406,11 @@ function bind() {
   $('#syncNow').onclick = () => { toast('Syncing…'); syncAll(); };
   $('#inviteBtn').onclick = () => sendInvite(latestVibe());
   $('#pairSave').onclick = saveNickname;
+  $('#pairCodeBtn').onclick = async () => {
+    const code = $('#pairCode').value.trim().toLowerCase();
+    if (!code) return toast('Type the pairing code first');
+    if (await pairExisting({ code })) { $('#pairCode').value = ''; closeSettings(); }
+  };
   $('#signOut').onclick = signOutNow;
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAll(); });
   window.addEventListener('online', syncAll);
