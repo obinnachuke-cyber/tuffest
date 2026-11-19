@@ -1,0 +1,8 @@
+# Netlify settings for Tuffest.
+# A shared-vibe link looks like  https://YOUR-SITE/s/TOKEN ; this hands it to the small function
+# in netlify/functions/share.js, which builds the page that message apps preview.
+[[redirects]]
+  from = "/s/*"
+  to = "/.netlify/functions/share?t=:splat"
+  status = 200
+  force = true

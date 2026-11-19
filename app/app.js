@@ -1576,6 +1576,9 @@ async function openStory(id) {
     $('.share', opt).hidden = !canShare;
   });
   $('#storyOpts').classList.toggle('one', modes.length === 1);
+  storyId = id;
+  $('#storyLinkRow').hidden = !Cloud.ready();                      // a link needs an account (the copy goes online)
+  $('#storyUnshare').hidden = !shareMap()[id];
   $('#toast').classList.remove('on'); // clear "Making your story…"
   $('#story').hidden = false;
   document.body.classList.add('locked');
@@ -1901,6 +1904,139 @@ async function signOutNow() {
   showAuth();
 }
 
+/* ============================== share a link ======================== */
+/* "Share as a link" puts a snapshot of one vibe (date, title, caption, photos) online under a long random
+   token. The link  https://SITE/s/TOKEN  previews in messages (netlify/functions/share.js) and opens the
+   vibe for anyone, signed in or not. Nothing else in the space is reachable from it. */
+let storyId = null;
+
+const shareMap = () => { try { return JSON.parse(localStorage.getItem('tuffest.shares') || '{}'); } catch (e) { return {}; } };
+const saveShareMap = m => { try { localStorage.setItem('tuffest.shares', JSON.stringify(m)); } catch (e) { /* storage blocked */ } };
+const newToken = () => {
+  const a = new Uint8Array(12);
+  crypto.getRandomValues(a);
+  return [...a].map(b => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('');
+};
+const shareUrl = token => `${location.origin}/s/${token}`;
+
+/** Upload public copies of the photos and write the snapshot row. Returns the token. */
+async function createShare(v) {
+  const { sb, space } = Cloud;
+  const map = shareMap();
+  const token = map[v.id] || newToken();               // sharing the same vibe again reuses (and refreshes) its link
+  const urls = [];
+  for (let i = 0; i < v.photos.length; i++) {
+    const path = `${space.id}/${token}/${i}.jpg`;
+    const { error } = await sb.storage.from('shared').upload(path, v.photos[i], { contentType: 'image/jpeg', upsert: true });
+    if (error) throw error;
+    urls.push(sb.storage.from('shared').getPublicUrl(path).data.publicUrl + `?t=${v.updatedAt || 0}`);
+  }
+  const { error } = await sb.from('shares').upsert({
+    token, vibe_id: v.id, space_id: space.id, date: v.date, title: v.title || '', caption: v.caption,
+    photos: v.photos.map((_, i) => ({ url: urls[i], w: v.dims[i][0], h: v.dims[i][1] })),
+    updated_at: new Date().toISOString(),
+  });
+  if (error) throw error;
+  map[v.id] = token;
+  saveShareMap(map);
+  return token;
+}
+
+async function shareLinkNow() {
+  const v = state.list.find(x => x.id === storyId);
+  if (!v || !Cloud.ready()) return toast('Sign in to share a link');
+  const btn = $('#storyLink');
+  btn.disabled = true;
+  toast('Making your link…');
+  try {
+    const url = shareUrl(await createShare(v));
+    $('#storyUnshare').hidden = false;
+    $('#toast').classList.remove('on');
+    try {
+      if (navigator.share) { await navigator.share({ title: v.title || 'A vibe', text: 'Look at this vibe:', url }); return; }
+    } catch (e) { if (e.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(url); toast('Link copied. Paste it into a message'); }
+    catch (e) { window.prompt('Copy this link:', url); }
+  } catch (e) {
+    console.warn(e);
+    toast('Couldn’t make the link. Is the share setup (supabase-share.sql) run?');
+  } finally { btn.disabled = false; }
+}
+
+/** Take the link down: the snapshot row and its public photo copies are deleted. */
+async function stopSharing() {
+  const map = shareMap(), token = map[storyId];
+  if (!token || !Cloud.ready()) return;
+  if (!confirm('Stop sharing? The link will stop working.')) return;
+  try {
+    await Cloud.sb.from('shares').delete().eq('token', token);
+    await Cloud.sb.storage.from('shared').remove([0, 1, 2, 3].map(i => `${Cloud.space.id}/${token}/${i}.jpg`)).catch(() => {});
+    delete map[storyId];
+    saveShareMap(map);
+    $('#storyUnshare').hidden = true;
+    toast('Link turned off');
+  } catch (e) { console.warn(e); toast('Couldn’t turn the link off. Try again'); }
+}
+
+/* --- the page a shared link opens --- */
+function sharedCardHTML(s, token) {
+  const dims = s.photos.map(p => [p.w || 4, p.h || 3]);
+  const lay = layoutOf(dims);
+  const frames = s.photos.map(p => `<div class="ph"><img src="${esc(p.url)}" alt="" draggable="false"></div>`).join('');
+  const v = { id: token, caption: s.caption || [] }; // same caption layout as a card: one place per line, steady random offsets
+  const caption = captionHTML(v);
+  return `<article class="card static"><div class="card-in">
+    <div class="cap"><div class="cap-top mono"><span>${fmtDate(s.date)}</span></div>${s.title ? `<h3 class="title">${esc(s.title)}</h3>` : ''}</div>
+    <div class="photos ${lay.kind}" style="--a:${lay.aspect.toFixed(3)}">${frames}</div>
+    ${caption ? `<div class="write cap-lines">${caption}</div>` : ''}
+  </div></article>`;
+}
+
+async function showShared(token) {
+  const box = $('#sharedCard');
+  box.innerHTML = '';
+  $('#shared').hidden = false;
+  document.body.classList.add('locked');
+  let share = null;
+  try {
+    const { data, error } = await Cloud.sb.rpc('get_share', { t: token });
+    if (error) throw error;
+    share = data && data[0];
+  } catch (e) { console.warn(e); }
+  if (!share) {
+    box.innerHTML = '<p class="shared-gone">This vibe isn’t shared anymore.</p>';
+    $('#sharedAdd').textContent = 'Make your own';
+    return;
+  }
+  $('#sharedOpen').textContent = Cloud.ready() ? 'go to my vibes' : 'I already have an account';
+  box.innerHTML = sharedCardHTML(share, token);
+  requestAnimationFrame(() => placeLines(box));
+  replaceOnImageLoad(box);
+}
+
+/** Once the photos load, re-place the caption lines (their widths can change the layout). */
+function replaceOnImageLoad(root) { root.querySelectorAll('img').forEach(i => i.addEventListener('load', () => placeLines(root), { once: true })); }
+
+function hideShared() {
+  $('#shared').hidden = true;
+  document.body.classList.remove('locked');
+}
+
+/** The small link under "Add vibe": back to your own vibes, or sign in if you already have an account. */
+function openFromShared() {
+  hideShared();
+  if (!Cloud.ready()) { authMode = 'in'; showAuth(); }
+}
+
+/** "Add vibe" on a shared vibe: signed-in people go straight to adding; everyone else signs up first (their own space). */
+function addFromShared() {
+  hideShared();
+  if (Cloud.ready()) { $('#fileInput').click(); return; }
+  try { localStorage.removeItem('tuffest.joincode'); } catch (e) { /* storage blocked */ } // a fresh account, not the sender's space
+  authMode = 'up';
+  showAuth();
+}
+
 /* ============================== settings ============================ */
 function openSettings() { $('#keyInput').value = state.mapsKey; setSheet($('#settings'), true); }
 function closeSettings() { if ($('#settings').classList.contains('on')) setSheet($('#settings'), false); }
@@ -1930,6 +2066,10 @@ function bind() {
     $('.keep', opt).onclick = () => saveStory(opt.dataset.mode);
   });
   $('#storyClose').onclick = closeStory;
+  $('#storyLink').onclick = shareLinkNow;
+  $('#storyUnshare').onclick = stopSharing;
+  $('#sharedAdd').onclick = addFromShared;
+  $('#sharedOpen').onclick = openFromShared;
   $('#story').onclick = e => { if (e.target.id === 'story') closeStory(); };
   $('#settingsBtn').onclick = openSettings;
   $('#settingsClose').onclick = closeSettings;
@@ -1991,12 +2131,16 @@ async function boot() {
     authMode = 'up';
   }
 
+  // a shared-vibe link looks like  .../app/?v=TOKEN : anyone can open it, no account needed
+  const sharedToken = (new URLSearchParams(location.search).get('v') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 40);
+
   // cloud: show what's on this phone straight away, then sign in / sync in the background
   if (Cloud.init()) {
     try {
       if (await Cloud.session()) { if (invite) toast('You’re already signed in'); await afterLogin(); }
-      else showAuth();
+      else if (!sharedToken) showAuth();                              // a shared vibe is shown first; sign-up comes from "Add vibe"
     } catch (e) { console.warn(e); setSync('offline · will retry'); }
+    if (sharedToken) showShared(sharedToken);
   }
 }
 boot();

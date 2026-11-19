@@ -183,7 +183,22 @@
           </div>
         </figure>
       </div>
+      <div class="story-link" id="storyLinkRow" hidden>
+        <button class="pill mono" id="storyLink" type="button">Share as a link</button>
+        <button class="mini" id="storyUnshare" type="button" hidden>stop sharing</button>
+        <p class="hint mono">Anyone with the link can view this vibe, even without an account.</p>
+      </div>
       <button class="mini story-close" id="storyClose" type="button">close</button>
+    </div>
+  </div>
+
+  <!-- A vibe someone shared with you by link (public, read-only) -->
+  <div class="shared" id="shared" hidden>
+    <div class="shared-box">
+      <div id="sharedCard"></div>
+      <button class="save mono" id="sharedAdd" type="button">Add vibe</button>
+      <button class="mini" id="sharedOpen" type="button">I already have an account</button>
+      <p class="hint mono" id="sharedNote">Shared from Tuffest. Make a page of your own vibes.</p>
     </div>
   </div>
 

@@ -33,3 +33,12 @@ Go to **app.netlify.com/drop** and drag the whole `app` folder onto the page. Op
 - Each phone keeps a copy, so it opens instantly and works offline. It syncs when it's back online.
 - Signing out removes the local copy from that phone (it stays in the cloud).
 - Don't share the `service_role` key anywhere. Only the `anon` key goes in `config.js`.
+
+## Share a vibe by link (optional, one more step)
+This lets you send a link to one vibe over Messages; anyone can open it without an account, and under the vibe there's an **Add vibe** button that asks them to sign up.
+
+1. In Supabase, open **SQL Editor → New query**, paste everything from `app/supabase-share.sql`, press **Run**.
+2. Push the repo to GitHub (it now includes `netlify.toml` and `netlify/functions/share.js`). Netlify picks both up by itself; no settings to change.
+3. In Tuffest, tap **share** on a vibe, then **Share as a link**. **Stop sharing** turns the link off again.
+
+The preview shown in Messages (title, caption, first photo) comes from the small function in `netlify/functions/share.js`.
